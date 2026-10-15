@@ -322,7 +322,7 @@ if ($search != "") {
 
 
 <hr>
-!-- CUSTOMER LIST -->
+
 
 <h2>Customer List</h2>
 
