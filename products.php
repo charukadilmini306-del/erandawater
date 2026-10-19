@@ -9,9 +9,21 @@ if (!isset($_SESSION["user_id"])) {
     exit();
 }
 
+$is_admin = isset($_SESSION["role"])
+    && $_SESSION["role"] === "admin";
+
 $message = "";
 $error = "";
 $edit_product = null;
+// Only Admin can add or update products
+if (
+    $_SERVER["REQUEST_METHOD"] === "POST" &&
+    (isset($_POST["add_product"]) || isset($_POST["update_product"])) &&
+    !$is_admin
+) {
+    http_response_code(403);
+    exit("Access denied. Admin only.");
+}
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["add_product"])) {
 
     $product_name = trim($_POST["product_name"]);
@@ -117,7 +129,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["update_product"])) {
 if (isset($_GET["updated"])) {
     $message = "Product updated successfully!";
 }
-if (isset($_GET["edit"]) && ctype_digit($_GET["edit"])) {
+if ($is_admin && isset($_GET["edit"]) && ctype_digit($_GET["edit"])) {
 
     $edit_id = (int) $_GET["edit"];
 
@@ -165,7 +177,8 @@ if (!$result) {
     <h1>Product Management</h1>
 
 
-<?php if ($edit_product !== null): ?>
+ <?php if ($is_admin && $edit_product !== null): ?> 
+
 
     <h2>Edit Product</h2>
 
@@ -217,7 +230,7 @@ if (!$result) {
 
     </form>
 
-<?php else: ?>
+<?php elseif ($is_admin): ?>
 
     <h2>Add New Product</h2>
 
@@ -300,12 +313,10 @@ if (!$result) {
                         <td><?php echo htmlspecialchars($product["status"]); ?></td>
 
                         <td><?php echo htmlspecialchars($product["created_at"]); ?></td>
-                        <td><a href="products.php?edit=<?php echo (int) $product['product_id']; ?>"> Edit</a></td> </tr>
-                <?php endwhile; ?>
-
-            <?php else: ?>
+                        <td><?php if ($is_admin): ?><a href="products.php?edit=<?php echo (int) $product['product_id']; ?>"> Edit</a><?php else: ?>View only<?php endif; ?></td> 
+                        </tr><?php endwhile; ?> <?php else: ?>
                 <tr>
-                    <td colspan="7">No products found.</td>
+                    <td colspan="8">No products found.</td>
                 </tr>
             <?php endif; ?>
         </tbody>
