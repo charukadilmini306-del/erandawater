@@ -7,6 +7,8 @@ if (!isset($_SESSION["user_id"])) {
     header("Location: login.php");
     exit();
 }
+$is_admin = isset($_SESSION["role"])
+            && $_SESSION["role"] === "admin";
 
 $message = "";
 $message_type = "";
@@ -223,6 +225,7 @@ if ($search != "") {
 
 
 <!-- ADD CUSTOMER -->
+ <?php if ($is_admin): ?>
 
 <h2>Add New Customer</h2>
 
@@ -292,6 +295,7 @@ if ($search != "") {
     </button>
 
 </form>
+<?php endif; ?>
 
 
 <hr>
@@ -339,8 +343,10 @@ if ($search != "") {
         <th>Address</th>
 
         <th>Customer Type</th>
+        <?php if ($is_admin): ?>
 
         <th>Action</th>
+        <?php endif; ?>
 
     </tr>
 
@@ -370,7 +376,7 @@ if ($search != "") {
                 <td>
                     <?php echo htmlspecialchars($row["customer_type"]); ?>
                 </td>
-
+                  <?php if ($is_admin): ?>
                 <td>
 
                     <a href="customer_edit.php?id=<?php echo $row["customer_id"]; ?>">
@@ -387,7 +393,7 @@ if ($search != "") {
                     </a>
 
                 </td>
-
+                     <?php endif; ?>
             </tr>
 
         <?php endwhile; ?>
@@ -396,7 +402,7 @@ if ($search != "") {
 
         <tr>
 
-            <td colspan="6">
+            <td colspan="<?php echo $is_admin ? 6 : 5; ?>">
                 No customers found.
             </td>
 

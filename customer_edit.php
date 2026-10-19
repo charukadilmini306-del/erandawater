@@ -7,6 +7,14 @@ if (!isset($_SESSION["user_id"])) {
     header("Location: login.php");
     exit();
 }
+// Only Admin can edit customer details
+if (
+    !isset($_SESSION["role"]) ||
+    $_SESSION["role"] !== "admin"
+) {
+    header("Location: customers.php");
+    exit();
+}
 
 if (!isset($_GET["id"])) {
     header("Location: customers.php");

@@ -7,7 +7,14 @@ if (!isset($_SESSION["user_id"])) {
     header("Location: login.php");
     exit();
 }
-
+// Only Admin can delete customers
+if (
+    !isset($_SESSION["role"]) ||
+    $_SESSION["role"] !== "admin"
+) {
+    header("Location: customers.php");
+    exit();
+}
 if (isset($_GET["id"])) {
 
     $customer_id = $_GET["id"];
