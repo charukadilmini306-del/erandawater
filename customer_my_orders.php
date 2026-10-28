@@ -20,6 +20,7 @@ if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
 }
 
+// Get orders belonging to the logged-in customer
 $sql = "SELECT
             order_id,
             order_date,
@@ -35,6 +36,18 @@ $stmt->bind_param("i", $customer_id);
 $stmt->execute();
 
 $result = $stmt->get_result();
+
+// Get products belonging to each order
+$item_sql = "SELECT
+                p.product_name,
+                oi.quantity,
+                oi.unit_price
+             FROM order_items oi
+             LEFT JOIN products p
+                ON oi.product_id = p.product_id
+             WHERE oi.order_id = ?";
+
+$items_stmt = $conn->prepare($item_sql);
 
 ?>
 
@@ -60,84 +73,144 @@ $result = $stmt->get_result();
 
     <?php if ($result->num_rows > 0): ?>
 
-        <table border="1" cellpadding="8">
-            <tr>
-                <th>Order ID</th>
-                <th>Order Date</th>
-                <th>Status</th>
-                <th>Total Amount</th>
-                <th>Delivery Address</th>
-                <th>Action</th>
-            </tr>
+        <?php while ($order = $result->fetch_assoc()): ?>
 
-            <?php while ($order = $result->fetch_assoc()): ?>
+            <section>
+                <hr>
 
-                <tr>
-                    <td>
-                        <?php echo (int) $order["order_id"]; ?>
-                    </td>
+                <h3>
+                    Order #<?php echo (int) $order["order_id"]; ?>
+                </h3>
 
-                    <td>
-                        <?php echo htmlspecialchars($order["order_date"]); ?>
-                    </td>
+                <p>
+                    <strong>Order Date:</strong>
+                    <?php echo htmlspecialchars($order["order_date"]); ?>
+                </p>
 
-                    <td>
-                        <?php echo htmlspecialchars($order["order_status"]); ?>
-                    </td>
+                <p>
+                    <strong>Status:</strong>
+                    <?php echo htmlspecialchars($order["order_status"]); ?>
+                </p>
 
-                    <td>
-                        Rs. <?php echo number_format(
-                            (float) $order["total_amount"],
-                            2
-                        ); ?>
-                    </td>
+                <p>
+                    <strong>Delivery Address:</strong>
+                    <?php echo htmlspecialchars($order["delivery_address"]); ?>
+                </p>
 
-                    <td>
-                        <?php echo htmlspecialchars($order["delivery_address"]); ?>
-                    </td>
+                <h4>Products Ordered</h4>
 
-                    <td>
-                        <?php if ($order["order_status"] === "Pending"): ?>
+                <table border="1" cellpadding="8">
+                    <thead>
+                        <tr>
+                            <th>Product Name</th>
+                            <th>Quantity</th>
+                            <th>Unit Price</th>
+                            <th>Subtotal</th>
+                        </tr>
+                    </thead>
 
-                            <form
-                                method="POST"
-                                action="customer_cancel_order.php"
-                                onsubmit="return confirm('Are you sure you want to cancel this order?');"
-                            >
-                                <input
-                                    type="hidden"
-                                    name="order_id"
-                                    value="<?php echo (int) $order["order_id"]; ?>"
-                                >
+                    <tbody>
 
-                                <input
-                                    type="hidden"
-                                    name="csrf_token"
-                                    value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>"
-                                >
+                        <?php
+                        $order_id = (int) $order["order_id"];
 
-                                <button type="submit">
-                                    Cancel Order
-                                </button>
-                            </form>
+                        $items_stmt->bind_param("i", $order_id);
+                        $items_stmt->execute();
 
-                        <?php else: ?>
+                        $items_result = $items_stmt->get_result();
 
-                            Not available
+                        if ($items_result->num_rows > 0):
+                            while ($item = $items_result->fetch_assoc()):
+                                $quantity = (int) $item["quantity"];
+                                $unit_price = (float) $item["unit_price"];
+                                $subtotal = $quantity * $unit_price;
+                        ?>
+
+                            <tr>
+                                <td>
+                                    <?php
+                                    echo htmlspecialchars(
+                                        $item["product_name"] ?? "Product unavailable"
+                                    );
+                                    ?>
+                                </td>
+
+                                <td>
+                                    <?php echo $quantity; ?>
+                                </td>
+                                <td>
+                                    Rs. <?php echo number_format($unit_price, 2); ?>
+                                </td>
+
+                                <td>
+                                    Rs. <?php echo number_format($subtotal, 2); ?>
+                                </td>
+                            </tr>
+
+                        <?php
+                            endwhile;
+                        else:
+                        ?>
+
+                            <tr>
+                                <td colspan="4">No product details found.</td>
+                            </tr>
 
                         <?php endif; ?>
-                    </td>
-                </tr>
 
-            <?php endwhile; ?>
+                    </tbody>
+                </table>
 
-        </table>
+                <p>
+                    <strong>Order Total:</strong>
+                    Rs. <?php echo number_format(
+                        (float) $order["total_amount"],
+                        2
+                    ); ?>
+                    </p>
+
+                <?php if ($order["order_status"] === "Pending"): ?>
+
+                    <form
+                        method="POST"
+                        action="customer_cancel_order.php"
+                        onsubmit="return confirm('Are you sure you want to cancel this order?');"
+                    >
+                        <input
+                            type="hidden"
+                            name="order_id"
+                            value="<?php echo (int) $order["order_id"]; ?>"
+                        >
+
+                        <input
+                            type="hidden"
+                            name="csrf_token"
+                            value="<?php echo htmlspecialchars(
+                                $_SESSION["csrf_token"],
+                                ENT_QUOTES,
+                                "UTF-8"
+                            ); ?>"
+                        >
+                        <button type="submit">Cancel Order</button>
+                    </form>
+
+                <?php else: ?>
+
+                    <p>Cancellation is not available for this order.</p>
+
+                <?php endif; ?>
+
+            </section>
+
+        <?php endwhile; ?>
 
     <?php else: ?>
 
         <p>You have not placed any orders yet.</p>
 
     <?php endif; ?>
+
+    <hr>
 
     <p><a href="customer_dashboard.php">Back to Dashboard</a></p>
 
@@ -150,6 +223,7 @@ $result = $stmt->get_result();
 
 <?php
 
+$items_stmt->close();
 $stmt->close();
 
 ?>

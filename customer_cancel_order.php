@@ -162,4 +162,6 @@ try {
 
     header("Location: customer_my_orders.php?error=cannot_cancel");
     exit;
+
+
 }
