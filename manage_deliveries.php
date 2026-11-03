@@ -133,6 +133,29 @@ $sql = "SELECT
         ORDER BY o.order_id DESC";
 
 $order_result = $conn->query($sql);
+    // Get all assigned deliveries
+$assigned_sql = "
+    SELECT
+        d.delivery_id,
+        d.order_id,
+        d.delivery_date,
+        d.delivery_status,
+        d.delivered_at,
+        COALESCE(u.full_name, d.delivery_person, 'Not Assigned')
+            AS delivery_person_name,
+        c.full_name AS customer_name,
+        o.delivery_address
+    FROM deliveries d
+    INNER JOIN orders o
+        ON d.order_id = o.order_id
+    INNER JOIN customers c
+        ON o.customer_id = c.customer_id
+    LEFT JOIN users u
+        ON d.delivery_person_id = u.user_id
+    ORDER BY d.delivery_id DESC
+";
+
+$assigned_result = $conn->query($assigned_sql);
 
 ?>
 
@@ -224,6 +247,72 @@ $order_result = $conn->query($sql);
     <br>
 
     <a href="dashboard.php">Back to Dashboard</a>
+    <hr>
+
+<h3>All Assigned Deliveries</h3>
+
+<?php if ($assigned_result && $assigned_result->num_rows > 0): ?>
+
+<table border="1" cellpadding="10">
+
+    <tr>
+        <th>Delivery ID</th>
+        <th>Order ID</th>
+        <th>Customer</th>
+        <th>Delivery Address</th>
+        <th>Delivery Person</th>
+        <th>Delivery Date</th>
+        <th>Status</th>
+        <th>Delivered At</th>
+    </tr>
+
+    <?php while ($delivery = $assigned_result->fetch_assoc()): ?>
+
+    <tr>
+
+        <td>
+            <?php echo $delivery["delivery_id"]; ?>
+        </td>
+
+        <td>
+            <?php echo $delivery["order_id"]; ?>
+        </td>
+
+        <td>
+            <?php echo htmlspecialchars($delivery["customer_name"]); ?>
+        </td>
+
+        <td>
+            <?php echo htmlspecialchars($delivery["delivery_address"]); ?>
+        </td>
+
+        <td>
+            <?php echo htmlspecialchars($delivery["delivery_person_name"]); ?>
+        </td>
+
+        <td>
+            <?php echo htmlspecialchars($delivery["delivery_date"] ?? "Not Set"); ?>
+        </td>
+
+        <td>
+            <?php echo htmlspecialchars($delivery["delivery_status"]); ?>
+        </td>
+
+        <td>
+            <?php echo htmlspecialchars($delivery["delivered_at"] ?? "Not Delivered"); ?>
+        </td>
+
+    </tr>
+
+    <?php endwhile; ?>
+
+</table>
+
+<?php else: ?>
+
+<p>No assigned deliveries found.</p>
+
+<?php endif; ?>
 
     <br><br>
 
