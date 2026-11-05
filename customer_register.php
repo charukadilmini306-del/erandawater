@@ -7,11 +7,13 @@ $error = "";
 
 $full_name = "";
 $phone = "";
+$email = "";
 $address = "";
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     $full_name = trim($_POST["full_name"] ?? "");
     $phone = trim($_POST["phone"] ?? "");
+    $email = trim($_POST["email"] ?? "");
     $address = trim($_POST["address"] ?? "");
 
     $password = $_POST["password"] ?? "";
@@ -19,13 +21,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     if (!preg_match("/^[0-9]{10}$/", $phone)) {
         $error = "Phone number must contain exactly 10 digits.";
-    } elseif (strlen($password) < 8) {
-        $error = "Password must contain at least 8 characters.";
-    } elseif ($password !== $confirm_password) {
-        $error = "Passwords do not match.";
-    } else {
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    $error = "Please enter a valid email address.";
+} elseif (strlen($password) < 8) {
+    $error = "Password must contain at least 8 characters.";
 
-        $stmt = $conn->prepare(
+} elseif ($password !== $confirm_password) {
+    $error = "Passwords do not match.";
+
+} else {
+
+    $stmt = $conn->prepare(
             "SELECT customer_id FROM customers WHERE phone = ? LIMIT 1" );
 
         $stmt->bind_param("s", $phone);
@@ -35,11 +41,27 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 $phone_exists = ($result->num_rows > 0);
 
 $stmt->close();
+$stmt = $conn->prepare(
+    "SELECT customer_id FROM customers WHERE email = ? LIMIT 1"
+);
+
+$stmt->bind_param("s", $email);
+$stmt->execute();
+
+$email_result = $stmt->get_result();
+$email_exists = ($email_result->num_rows > 0);
+
+$stmt->close();
 
 if ($phone_exists) {
     $error = "This phone number already exists in business records. Please contact the administrator to verify your details.";
-    
-            } else {
+
+} elseif ($email_exists) {
+    $error = "This email address is already registered. Please use another email.";
+
+} else {
+
+
 
             $password_hash = password_hash($password, PASSWORD_DEFAULT);
 
@@ -49,11 +71,11 @@ if ($phone_exists) {
 
                 $stmt = $conn->prepare(
                     "INSERT INTO customers
-                    (full_name, phone, address, customer_type)
-                    VALUES (?, ?, ?, 'Home Delivery')"
+                    (full_name, phone,email, address, customer_type)
+                    VALUES (?, ?, ?, ?,'Home Delivery')"
                 );
 
-                $stmt->bind_param("sss", $full_name, $phone, $address);
+                $stmt->bind_param("ssss", $full_name, $phone,$email, $address);
                 $stmt->execute();
 
                 $customer_id = $conn->insert_id;
@@ -75,6 +97,7 @@ if ($phone_exists) {
 
                 $full_name = "";
                 $phone = "";
+                $email = "";
                 $address = "";
 
             } catch (Throwable $e) {
@@ -128,6 +151,15 @@ if ($phone_exists) {
             inputmode="numeric"
             required
         >
+        <br><br>
+        <label>Email Address:</label><br>
+          <input
+              type="email"
+              name="email"
+              maxlength="150"
+              autocomplete="email"
+              required
+            >
         <br><br>
 
         <label>Address:</label><br>

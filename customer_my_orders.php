@@ -46,7 +46,19 @@ $item_sql = "SELECT
              LEFT JOIN products p
                 ON oi.product_id = p.product_id
              WHERE oi.order_id = ?";
+// Get payment details for each order
+$payment_sql = "SELECT
+                    payment_id,
+                    payment_date,
+                    amount,
+                    payment_method,
+                    payment_status
+                FROM payments
+                WHERE order_id = ?
+                AND payment_status IN ('Paid', 'Collected')
+                ORDER BY payment_id DESC";
 
+$payments_stmt = $conn->prepare($payment_sql);
 $items_stmt = $conn->prepare($item_sql);
 
 ?>
@@ -167,7 +179,107 @@ $items_stmt = $conn->prepare($item_sql);
                         (float) $order["total_amount"],
                         2
                     ); ?>
-                    </p>
+               </p>
+               <?php
+// Calculate received payments for this order
+$order_id = (int) $order["order_id"];
+
+$payments_stmt->bind_param("i", $order_id);
+$payments_stmt->execute();
+
+$payments_result = $payments_stmt->get_result();
+
+$received_amount = 0;
+$payment_history = [];
+
+while ($payment = $payments_result->fetch_assoc()) {
+
+    $received_amount += (float) $payment["amount"];
+
+    $payment_history[] = $payment;
+
+}
+
+$remaining_balance = (float) $order["total_amount"]
+                   - $received_amount;
+?>
+
+<h4>Payment Summary</h4>
+
+<p>
+    <strong>Total Amount:</strong>
+    Rs. <?php echo number_format(
+        (float) $order["total_amount"],
+        2
+    ); ?>
+</p>
+
+<p>
+    <strong>Received Amount:</strong>
+    Rs. <?php echo number_format($received_amount, 2); ?>
+</p>
+
+<p>
+    <strong>Remaining Balance:</strong>
+    Rs. <?php echo number_format($remaining_balance, 2); ?>
+</p>
+<h4>Payment History</h4>
+
+<?php if (count($payment_history) > 0): ?>
+
+    <table border="1" cellpadding="8">
+
+        <tr>
+            <th>Payment Date</th>
+            <th>Amount</th>
+            <th>Method</th>
+            <th>Status</th>
+        </tr>
+
+        <?php foreach ($payment_history as $payment): ?>
+
+            <tr>
+
+                <td>
+                    <?php echo htmlspecialchars($payment["payment_date"]); ?>
+                </td>
+
+                <td>
+                    Rs. <?php echo number_format(
+                        (float) $payment["amount"],
+                        2
+                    ); ?>
+                </td>
+
+                <td>
+                    <?php echo htmlspecialchars($payment["payment_method"]); ?>
+                </td>
+
+                <td>
+
+                    <?php if ($payment["payment_status"] === "Collected"): ?>
+
+                        Received - Awaiting Confirmation
+
+                    <?php elseif ($payment["payment_status"] === "Paid"): ?>
+
+                        Confirmed
+
+                    <?php endif; ?>
+
+                </td>
+
+            </tr>
+
+        <?php endforeach; ?>
+
+    </table>
+
+<?php else: ?>
+
+    <p>No payments recorded yet.</p>
+
+<?php endif; ?>
 
                 <?php if ($order["order_status"] === "Pending"): ?>
 

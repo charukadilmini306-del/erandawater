@@ -33,7 +33,102 @@ if (isset($_SESSION["payment_success"])) {
     unset($_SESSION["payment_success"]);
 
 }
+// Get verification success message after redirect
+if (isset($_SESSION["verification_success"])) {
 
+    $success = $_SESSION["verification_success"];
+
+    unset($_SESSION["verification_success"]);
+
+}
+// Verify collected payment
+if (
+    $_SERVER["REQUEST_METHOD"] === "POST" &&
+    isset($_POST["verify_payment"])
+) {
+
+    if (
+        !isset($_POST["csrf_token"]) ||
+        !hash_equals($_SESSION["csrf_token"], $_POST["csrf_token"])
+    ) {
+        die("Invalid security token.");
+    }
+
+    $payment_id = (int)($_POST["payment_id"] ?? 0);
+
+    if ($payment_id <= 0) {
+
+        $error = "Invalid payment record.";
+
+    } else {
+
+        try {
+
+            $conn->begin_transaction();
+
+            $stmt = $conn->prepare(
+                "SELECT payment_id, payment_status
+                 FROM payments
+                 WHERE payment_id = ?
+                 FOR UPDATE"
+            );
+
+            $stmt->bind_param("i", $payment_id);
+            $stmt->execute();
+
+            $payment = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$payment) {
+                throw new Exception("Payment record not found.");
+            }
+
+            if ($payment["payment_status"] !== "Collected") {
+                throw new Exception(
+                    "This payment has already been verified or is not awaiting verification."
+                );
+            }
+
+            $verified_by = (int)$_SESSION["user_id"];
+
+            $stmt = $conn->prepare(
+                "UPDATE payments
+                 SET payment_status = 'Paid',
+                     verified_by = ?,
+                     verified_at = NOW()
+                 WHERE payment_id = ?
+                 AND payment_status = 'Collected'"
+            );
+
+            $stmt->bind_param(
+                "ii",
+                $verified_by,
+                $payment_id
+            );
+
+            if (!$stmt->execute() || $stmt->affected_rows !== 1) {
+                throw new Exception("Payment verification failed.");
+            }
+
+            $stmt->close();
+
+            $conn->commit();
+
+            $_SESSION["verification_success"] =
+                "Payment verified successfully.";
+
+            header("Location: manage_payments.php");
+            exit();
+
+        } catch (Throwable $e) {
+
+            $conn->rollback();
+            $error = $e->getMessage();
+
+        }
+
+    }
+}
 // Save new payment
 if (
     $_SERVER["REQUEST_METHOD"] === "POST" &&
@@ -144,6 +239,42 @@ if (
 
     }
 }
+
+// Get payments awaiting verification
+$pending_sql = "
+SELECT
+    p.payment_id,
+    p.order_id,
+    p.payment_date,
+    p.amount,
+    p.payment_method,
+    p.collected_by,
+    p.collection_note,
+    c.full_name,
+    c.phone,
+    u.full_name AS delivery_person_name
+
+FROM payments p
+
+INNER JOIN orders o
+    ON p.order_id = o.order_id
+
+INNER JOIN customers c
+    ON o.customer_id = c.customer_id
+
+LEFT JOIN users u
+    ON p.collected_by = u.user_id
+
+WHERE p.payment_status = 'Collected'
+
+ORDER BY p.payment_date ASC
+";
+
+$pending_result = $conn->query($pending_sql);
+
+if (!$pending_result) {
+    die("Error loading pending payments: " . $conn->error);
+}
 // Get order payment details
 $sql = "
 SELECT
@@ -229,7 +360,116 @@ if (!$result) {
         <?php echo htmlspecialchars($error); ?>
     </p>
 <?php endif; ?>
+<hr>
 
+<h3>Payments Awaiting Verification</h3>
+
+<table border="1" cellpadding="10" cellspacing="0">
+
+<tr>
+    <th>Payment ID</th>
+    <th>Order ID</th>
+    <th>Customer Name</th>
+    <th>Phone</th>
+    <th>Delivery Person</th>
+    <th>Payment Date</th>
+    <th>Amount</th>
+    <th>Method</th>
+    <th>Collection Note</th>
+    <th>Action</th>
+</tr>
+
+<?php if ($pending_result->num_rows > 0): ?>
+
+    <?php while ($pending = $pending_result->fetch_assoc()): ?>
+
+        <tr>
+
+            <td>
+                <?php echo $pending["payment_id"]; ?>
+            </td>
+
+            <td>
+                <?php echo $pending["order_id"]; ?>
+            </td>
+
+            <td>
+                <?php echo htmlspecialchars($pending["full_name"]); ?>
+            </td>
+
+            <td>
+                <?php echo htmlspecialchars($pending["phone"]); ?>
+            </td>
+
+            <td>
+                <?php echo htmlspecialchars(
+                    $pending["delivery_person_name"] ?? "Not Available"
+                ); ?>
+            </td>
+
+            <td>
+                <?php echo htmlspecialchars($pending["payment_date"]); ?>
+            </td>
+
+            <td>
+                Rs. <?php echo number_format($pending["amount"], 2); ?>
+            </td>
+
+            <td>
+                <?php echo htmlspecialchars($pending["payment_method"]); ?>
+            </td>
+
+            <td>
+                <?php echo htmlspecialchars(
+                    $pending["collection_note"] ?? "-"
+                ); ?>
+            </td>
+
+            <td>
+
+                <form method="POST">
+
+                    <input
+                        type="hidden"
+                        name="csrf_token"
+                        value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>"
+                    >
+
+                    <input
+                        type="hidden"
+                        name="payment_id"
+                        value="<?php echo $pending["payment_id"]; ?>"
+                    >
+
+                    <button
+                        type="submit"
+                        name="verify_payment"
+                        onclick="return confirm('Are you sure you want to verify this payment?');"
+                    >
+                        Verify Payment
+                    </button>
+
+                </form>
+
+            </td>
+
+        </tr>
+
+    <?php endwhile; ?>
+
+<?php else: ?>
+
+    <tr>
+        <td colspan="10">
+            No payments awaiting verification.
+        </td>
+    </tr>
+
+<?php endif; ?>
+
+</table>
+
+<hr>
 
 <h3>Record New Payment</h3>
 
