@@ -23,11 +23,17 @@ if (empty($_SESSION["csrf_token"])) {
 $success = $_SESSION["reset_success"] ?? "";
 $error = $_SESSION["reset_error"] ?? "";
 $reset_link = $_SESSION["reset_link"] ?? "";
+$user_reset_success = $_SESSION["user_reset_success"] ?? "";
+$user_reset_error = $_SESSION["user_reset_error"] ?? "";
+$user_reset_link = $_SESSION["user_reset_link"] ?? "";
 
 // Clear old messages
 unset($_SESSION["reset_success"]);
 unset($_SESSION["reset_error"]);
 unset($_SESSION["reset_link"]);
+unset($_SESSION["user_reset_success"]);
+unset($_SESSION["user_reset_error"]);
+unset($_SESSION["user_reset_link"]);
 // Handle password reset request
 if (
     $_SERVER["REQUEST_METHOD"] === "POST" &&
@@ -194,6 +200,175 @@ exit();
 
 }
 }
+
+// Handle Staff / Delivery Password Reset
+if (
+    $_SERVER["REQUEST_METHOD"] === "POST" &&
+    isset($_POST["reset_user_password"])
+) {
+
+    // Validate CSRF token
+    if (
+        !isset($_POST["csrf_token"]) ||
+        !hash_equals(
+            $_SESSION["csrf_token"],
+            $_POST["csrf_token"]
+        )
+    ) {
+
+        $_SESSION["reset_error"] =
+            "Invalid request. Please try again.";
+
+    } else {
+
+        $request_id = (int) ($_POST["user_request_id"] ?? 0);
+
+        
+        $conn->begin_transaction();
+
+try {
+
+    $check_sql = "
+        SELECT
+            r.user_id,
+            u.role
+        FROM user_password_reset_requests r
+        INNER JOIN users u
+            ON r.user_id = u.user_id
+        WHERE r.request_id = ?
+        AND r.request_status = 'Pending'
+        AND u.role IN ('staff', 'delivery')
+        FOR UPDATE
+    ";
+
+    $check_stmt = $conn->prepare($check_sql);
+    $check_stmt->bind_param("i", $request_id);
+    $check_stmt->execute();
+
+    $check_result = $check_stmt->get_result();
+
+    if ($check_result->num_rows !== 1) {
+        throw new Exception("Invalid reset request.");
+    }
+
+    $request = $check_result->fetch_assoc();
+
+    $user_id = (int) $request["user_id"];
+    $user_role = $request["role"];
+
+    $check_stmt->close();
+
+      // Generate secure random token
+$reset_token = bin2hex(random_bytes(32));
+
+// Store only the token hash
+$token_hash = hash("sha256", $reset_token);
+
+// Invalidate previous unused tokens
+$invalidate_sql = "
+    UPDATE user_password_reset_tokens
+    SET used_at = NOW()
+    WHERE user_id = ?
+    AND used_at IS NULL
+";
+
+$invalidate_stmt = $conn->prepare($invalidate_sql);
+$invalidate_stmt->bind_param("i", $user_id);
+
+if (!$invalidate_stmt->execute()) {
+    throw new Exception("Could not invalidate old tokens.");
+}
+
+$invalidate_stmt->close();
+
+// Save new reset token
+$token_sql = "
+    INSERT INTO user_password_reset_tokens
+    (user_id, token_hash, expires_at)
+    VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))
+";
+
+$token_stmt = $conn->prepare($token_sql);
+$token_stmt->bind_param("is", $user_id, $token_hash);
+
+if (!$token_stmt->execute()) {
+    throw new Exception("Could not create reset token.");
+}
+
+$token_stmt->close();
+
+// Create Staff / Delivery reset link
+$protocol = (
+    !empty($_SERVER["HTTPS"]) &&
+    $_SERVER["HTTPS"] !== "off"
+) ? "https" : "http";
+
+$host = $_SERVER["HTTP_HOST"];
+
+$project_path = rtrim(
+    dirname($_SERVER["SCRIPT_NAME"]),
+    "/\\"
+);
+
+$user_reset_link = $protocol . "://" . $host .
+    $project_path .
+    "/user_reset_password.php?token=" .
+    urlencode($reset_token);
+
+    // Mark request as completed
+$request_sql = "
+    UPDATE user_password_reset_requests
+    SET request_status = 'Completed',
+        handled_by = ?,
+        handled_at = NOW()
+    WHERE request_id = ?
+    AND request_status = 'Pending'
+";
+
+$request_stmt = $conn->prepare($request_sql);
+
+$admin_id = (int) $_SESSION["user_id"];
+
+$request_stmt->bind_param(
+    "ii",
+    $admin_id,
+    $request_id
+);
+
+if (
+    !$request_stmt->execute() ||
+    $request_stmt->affected_rows !== 1
+) {
+    throw new Exception("Request update failed.");
+}
+
+$request_stmt->close();
+
+// Complete transaction
+$conn->commit();
+
+// Save Staff / Delivery reset link
+$_SESSION["user_reset_link"] = $user_reset_link;
+
+$_SESSION["user_reset_success"] =
+    "Staff / Delivery reset link created successfully.";
+
+    } catch (Throwable $e) {
+
+    // Undo database changes
+    $conn->rollback();
+
+    $_SESSION["user_reset_error"] =
+        "Staff / Delivery reset link creation failed. Please try again.";
+}
+
+// Refresh page
+header("Location: admin_password_reset_requests.php");
+exit();
+
+    }
+}
+
 // Get pending password reset requests
 $sql = "
     SELECT
@@ -215,6 +390,30 @@ if (!$result) {
 }
 
 $pending_count = $result->num_rows;
+
+// Get pending Staff / Delivery reset requests
+$user_sql = "
+    SELECT
+        r.request_id,
+        r.requested_at,
+        u.full_name,
+        u.username,
+        u.role
+    FROM user_password_reset_requests r
+    INNER JOIN users u
+        ON r.user_id = u.user_id
+    WHERE r.request_status = 'Pending'
+    AND u.role IN ('staff', 'delivery')
+    ORDER BY r.requested_at ASC
+";
+
+$user_result = $conn->query($user_sql);
+
+if (!$user_result) {
+    die("User reset query failed: " . $conn->error);
+}
+
+$user_pending_count = $user_result->num_rows;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -244,6 +443,43 @@ $pending_count = $result->num_rows;
             <?php echo htmlspecialchars($error); ?>
         </p>
     <?php } ?>
+
+    <?php if (!empty($user_reset_success)) { ?>
+
+    <p style="color: green;">
+        <?php echo htmlspecialchars($user_reset_success); ?>
+    </p>
+
+<?php } ?>
+
+<?php if (!empty($user_reset_error)) { ?>
+
+    <p style="color: red;">
+        <?php echo htmlspecialchars($user_reset_error); ?>
+    </p>
+
+<?php } ?>
+
+<?php if (!empty($user_reset_link)) { ?>
+
+    <h3>Staff / Delivery Password Reset Link</h3>
+
+    <p>Copy this link and send it to the verified user.</p>
+
+    <input
+        type="text"
+        id="userResetLink"
+        value="<?php echo htmlspecialchars($user_reset_link); ?>"
+        readonly
+    >
+
+    <button type="button" onclick="copyUserResetLink()">
+        Copy Link
+    </button>
+
+    <p>This link expires in 15 minutes and can only be used once.</p>
+
+<?php } ?>
     <?php if (!empty($reset_link)) { ?>
 
     <h3>Customer Password Reset Link</h3>
@@ -278,6 +514,22 @@ function copyResetLink() {
     navigator.clipboard.writeText(link.value)
         .then(function () {
             alert("Reset link copied successfully.");
+        })
+        .catch(function () {
+            alert("Copy failed. Please copy the link manually.");
+        });
+}
+
+function copyUserResetLink() {
+
+    const link = document.getElementById("userResetLink");
+
+    link.select();
+    link.setSelectionRange(0, 99999);
+
+    navigator.clipboard.writeText(link.value)
+        .then(function () {
+            alert("Staff / Delivery reset link copied successfully.");
         })
         .catch(function () {
             alert("Copy failed. Please copy the link manually.");
@@ -348,6 +600,89 @@ function copyResetLink() {
 <?php } else { ?>
 
     <p>No pending password reset requests.</p>
+
+<?php } ?>
+
+<hr>
+
+<h2>Staff / Delivery Password Reset Requests</h2>
+
+<p>
+    Pending Requests:
+    <?php echo $user_pending_count; ?>
+</p>
+
+<?php if ($user_pending_count > 0) { ?>
+
+    <table border="1" cellpadding="8">
+
+        <tr>
+            <th>Request ID</th>
+            <th>Full Name</th>
+            <th>Username</th>
+            <th>Role</th>
+            <th>Requested Date</th>
+            <th>Action</th>
+        </tr>
+
+        <?php while ($user_row = $user_result->fetch_assoc()) { ?>
+
+            <tr>
+
+                <td>
+                    <?php echo (int) $user_row["request_id"]; ?>
+                </td>
+
+                <td>
+                    <?php echo htmlspecialchars($user_row["full_name"]); ?>
+                </td>
+
+                <td>
+                    <?php echo htmlspecialchars($user_row["username"]); ?>
+                </td>
+
+                <td>
+                    <?php echo htmlspecialchars($user_row["role"]); ?>
+                </td>
+
+                <td>
+                    <?php echo htmlspecialchars($user_row["requested_at"]); ?>
+                </td>
+
+                <td>
+
+                    <form method="POST"
+                        onsubmit="return confirm('Have you verified this user identity? Generate a reset link?');">
+
+                        <input
+                            type="hidden"
+                            name="csrf_token"
+                            value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>"
+                        >
+
+                        <input
+                            type="hidden"
+                            name="user_request_id"
+                            value="<?php echo (int) $user_row["request_id"]; ?>"
+                        >
+
+                        <button type="submit" name="reset_user_password">
+                            Generate Reset Link
+                        </button>
+
+                    </form>
+
+                </td>
+
+            </tr>
+
+        <?php } ?>
+
+    </table>
+
+<?php } else { ?>
+
+    <p>No pending Staff / Delivery password reset requests.</p>
 
 <?php } ?>
 <br>
