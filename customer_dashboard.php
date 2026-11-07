@@ -12,6 +12,13 @@ if (
 }
 
 $customer_name = $_SESSION["customer_name"] ?? "Customer";
+if (
+    isset($_SESSION["customer_must_change_password"]) &&
+    $_SESSION["customer_must_change_password"] === 1
+) {
+    header("Location: customer_change_password.php");
+    exit();
+}
 
 ?>
 

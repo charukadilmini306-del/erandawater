@@ -10,6 +10,13 @@ if (
     header("Location: customer_login.php");
     exit;
 }
+if (
+    isset($_SESSION["customer_must_change_password"]) &&
+    $_SESSION["customer_must_change_password"] === 1
+) {
+    header("Location: customer_change_password.php");
+    exit();
+}
 
 require_once "config/database.php";
 

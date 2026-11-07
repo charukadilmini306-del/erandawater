@@ -19,14 +19,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     } else {
 
         $stmt = $conn->prepare(
-            "SELECT c.customer_id, c.full_name, ca.password_hash
-             FROM customers c
-             INNER JOIN customer_accounts ca
-             ON c.customer_id = ca.customer_id
-             WHERE c.phone = ?
-             LIMIT 1"
-        );
-
+         "SELECT
+        c.customer_id,
+        c.full_name,
+        ca.password_hash,
+        ca.must_change_password
+        FROM customers c
+        INNER JOIN customer_accounts ca
+        ON c.customer_id = ca.customer_id
+         WHERE c.phone = ?
+         LIMIT 1"
+      );
+          
         $stmt->bind_param("s", $phone);
         $stmt->execute();
 
@@ -40,16 +44,27 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             password_verify($password, $customer["password_hash"])
         ) {
 
-            session_regenerate_id(true);
+         session_regenerate_id(true);
 
-            $_SESSION["customer_id"] = (int) $customer["customer_id"];
-            $_SESSION["customer_name"] = $customer["full_name"];
-            $_SESSION["customer_logged_in"] = true;
+              $_SESSION["customer_id"] = (int) $customer["customer_id"];
+                $_SESSION["customer_name"] = $customer["full_name"];
+                 $_SESSION["customer_logged_in"] = true;
 
-            header("Location: customer_dashboard.php");
-            exit;
+                 $_SESSION["customer_must_change_password"] =
+                  (int) $customer["must_change_password"];
 
-        } else {
+                 if ($_SESSION["customer_must_change_password"] === 1) {
+
+                    header("Location: customer_change_password.php");
+                        exit();
+
+    } else {
+
+        header("Location: customer_dashboard.php");
+        exit();
+
+    }
+      } else {
 
             $error = "Invalid phone number or password.";
 
