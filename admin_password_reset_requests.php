@@ -22,23 +22,29 @@ if (empty($_SESSION["csrf_token"])) {
 // Get messages
 $success = $_SESSION["reset_success"] ?? "";
 $error = $_SESSION["reset_error"] ?? "";
-$temporary_password = $_SESSION["reset_temp_password"] ?? "";
+$reset_link = $_SESSION["reset_link"] ?? "";
 
+// Clear old messages
 unset($_SESSION["reset_success"]);
 unset($_SESSION["reset_error"]);
-unset($_SESSION["reset_temp_password"]);
+unset($_SESSION["reset_link"]);
 // Handle password reset request
 if (
     $_SERVER["REQUEST_METHOD"] === "POST" &&
     isset($_POST["reset_password"])
 ) {
 
-    // Check CSRF token
+    // Validate CSRF token
     if (
         !isset($_POST["csrf_token"]) ||
-        !hash_equals($_SESSION["csrf_token"], $_POST["csrf_token"])
+        !hash_equals(
+            $_SESSION["csrf_token"],
+            $_POST["csrf_token"]
+        )
     ) {
-        $error = "Invalid request. Please try again.";
+
+        $_SESSION["reset_error"] =
+            "Invalid request. Please try again.";
 
     } else {
 
@@ -64,93 +70,129 @@ if (
             $check_result = $check_stmt->get_result();
 
             if ($check_result->num_rows !== 1) {
-                throw new Exception("Invalid request.");
+                throw new Exception("Invalid reset request.");
             }
 
             $request = $check_result->fetch_assoc();
+
             $customer_id = (int) $request["customer_id"];
 
             $check_stmt->close();
+            // Generate secure random token
+$reset_token = bin2hex(random_bytes(32));
 
-            // Generate temporary password
-            $temporary_password = bin2hex(random_bytes(6));
+// Store only the token hash
+$token_hash = hash("sha256", $reset_token);
 
-            $password_hash = password_hash(
-                $temporary_password,
-                PASSWORD_DEFAULT
-            );
 
-            // Update customer password
-            $update_sql = "
-                UPDATE customer_accounts
-                SET password_hash = ?,
-                    must_change_password = 1
-                WHERE customer_id = ?
-            ";
+// Invalidate previous unused tokens
+$invalidate_sql = "
+    UPDATE password_reset_tokens
+    SET used_at = NOW()
+    WHERE customer_id = ?
+    AND used_at IS NULL
+";
 
-            $update_stmt = $conn->prepare($update_sql);
+$invalidate_stmt = $conn->prepare($invalidate_sql);
 
-            $update_stmt->bind_param(
-                "si",
-                $password_hash,
-                $customer_id
-            );
+$invalidate_stmt->bind_param("i", $customer_id);
 
-            if (
-                !$update_stmt->execute() ||
-                $update_stmt->affected_rows !== 1
-            ) {
-                throw new Exception("Password update failed.");
-            }
+if (!$invalidate_stmt->execute()) {
+    throw new Exception("Could not invalidate old tokens.");
+}
 
-            $update_stmt->close();
+$invalidate_stmt->close();
 
-            // Mark request as completed
-            $request_sql = "
-                UPDATE password_reset_requests
-                SET request_status = 'Completed',
-                    handled_by = ?,
-                    handled_at = NOW()
-                WHERE request_id = ?
-                AND request_status = 'Pending'
-            ";
+// Save new token
+$token_sql = "
+INSERT INTO password_reset_tokens
+(customer_id, token_hash, expires_at)
+VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))
+";
 
-            $request_stmt = $conn->prepare($request_sql);
+$token_stmt = $conn->prepare($token_sql);
 
-            $admin_id = (int) $_SESSION["user_id"];
+$token_stmt->bind_param(
+    "is",
+    $customer_id,
+    $token_hash,
+    
+);
 
-            $request_stmt->bind_param(
-                "ii",
-                $admin_id,
-                $request_id
-            );
+if (!$token_stmt->execute()) {
+    throw new Exception("Could not create reset token.");
+}
 
-            if (
-                !$request_stmt->execute() ||
-                $request_stmt->affected_rows !== 1
-            ) {
-                throw new Exception("Request update failed.");
-            }
+$token_stmt->close();
+// Create reset link
+$protocol = (
+    !empty($_SERVER["HTTPS"]) &&
+    $_SERVER["HTTPS"] !== "off"
+) ? "https" : "http";
 
-            $request_stmt->close();
+$host = $_SERVER["HTTP_HOST"];
 
-            $conn->commit();
+$project_path = rtrim(
+    dirname($_SERVER["SCRIPT_NAME"]),
+    "/\\"
+);
 
-            $_SESSION["reset_temp_password"] = $temporary_password;
-            $_SESSION["reset_success"] = "Password reset successfully.";
+$reset_link = $protocol . "://" . $host .
+    $project_path .
+    "/customer_reset_password.php?token=" .
+    urlencode($reset_token);
+    // Mark reset request as completed
+$request_sql = "
+    UPDATE password_reset_requests
+    SET request_status = 'Completed',
+        handled_by = ?,
+        handled_at = NOW()
+    WHERE request_id = ?
+    AND request_status = 'Pending'
+";
 
-        } catch (Throwable $e) {
+$request_stmt = $conn->prepare($request_sql);
 
-            $conn->rollback();
+$admin_id = (int) $_SESSION["user_id"];
 
-            $_SESSION["reset_error"] =
-                "Password reset failed. Please try again.";
-        }
+$request_stmt->bind_param(
+    "ii",
+    $admin_id,
+    $request_id
+);
 
-        // Refresh page after processing
-        header("Location: admin_password_reset_requests.php");
-        exit();
-    }
+if (
+    !$request_stmt->execute() ||
+    $request_stmt->affected_rows !== 1
+) {
+    throw new Exception("Request update failed.");
+}
+
+$request_stmt->close();
+
+// Complete database transaction
+$conn->commit();
+
+// Save reset link for admin
+$_SESSION["reset_link"] = $reset_link;
+
+$_SESSION["reset_success"] =
+    "Reset link created successfully.";
+
+} catch (Throwable $e) {
+
+    // Undo database changes if an error occurs
+    $conn->rollback();
+
+    $_SESSION["reset_error"] =
+        "Reset link creation failed. Please try again.";
+}
+
+// Refresh page
+header("Location: admin_password_reset_requests.php");
+exit();
+
+}
 }
 // Get pending password reset requests
 $sql = "
@@ -173,7 +215,6 @@ if (!$result) {
 }
 
 $pending_count = $result->num_rows;
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -203,20 +244,51 @@ $pending_count = $result->num_rows;
             <?php echo htmlspecialchars($error); ?>
         </p>
     <?php } ?>
+    <?php if (!empty($reset_link)) { ?>
 
-    <?php if (!empty($temporary_password)) { ?>
-        <h3>Temporary Password</h3>
+    <h3>Customer Password Reset Link</h3>
 
-        <p>
-            <?php echo htmlspecialchars($temporary_password); ?>
-        </p>
+    <p>Copy this link and send it to the verified customer.</p>
 
-        <p>
-            Contact the customer using their verified phone number
-            and provide this temporary password securely.
-        </p>
-    <?php } ?>
-    <table border="1" cellpadding="10">
+    <input
+        type="text"
+        id="resetLink"
+        value="<?php echo htmlspecialchars($reset_link); ?>"
+        readonly
+        style="width: 80%;"
+    >
+
+    <button type="button" onclick="copyResetLink()">
+        Copy Link
+    </button>
+
+    <p>
+        This link expires in 15 minutes and can only be used once.
+    </p>
+
+<?php } ?>
+
+<script>
+function copyResetLink() {
+    const link = document.getElementById("resetLink");
+
+    link.select();
+    link.setSelectionRange(0, 99999);
+
+    navigator.clipboard.writeText(link.value)
+        .then(function () {
+            alert("Reset link copied successfully.");
+        })
+        .catch(function () {
+            alert("Copy failed. Please copy the link manually.");
+        });
+}
+</script>
+<h2>Pending Password Reset Requests</h2>
+
+<?php if ($pending_count > 0) { ?>
+
+    <table border="1" cellpadding="8">
 
         <tr>
             <th>Request ID</th>
@@ -226,76 +298,61 @@ $pending_count = $result->num_rows;
             <th>Action</th>
         </tr>
 
-        <?php if ($result->num_rows > 0) { ?>
-
-            <?php while ($row = $result->fetch_assoc()) { ?>
-
-                <tr>
-
-                    <td>
-                        <?php echo $row["request_id"]; ?>
-                    </td>
-
-                    <td>
-                        <?php echo htmlspecialchars($row["full_name"]); ?>
-                    </td>
-
-                    <td>
-                        <?php echo htmlspecialchars($row["phone"]); ?>
-                    </td>
-
-                    <td>
-                        <?php echo htmlspecialchars($row["requested_at"]); ?>
-                    </td>
-
-                    <td>
-
-                        <a href="tel:<?php echo htmlspecialchars($row["phone"]); ?>">
-                            Call
-                        </a>
-                        <br>
-
-                             <a href="sms:<?php echo htmlspecialchars($row["phone"]); ?>">
-                                         Message
-                            </a>
-
-                        <br>
-
-                        <form method="POST"
-                              onsubmit="return confirm('Have you verified the customer identity by phone? Reset the password now?');">
-
-                            <input type="hidden"
-                                   name="csrf_token"
-                                   value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">
-
-                            <input type="hidden"
-                                   name="request_id"
-                                   value="<?php echo (int) $row["request_id"]; ?>">
-
-                            <button type="submit" name="reset_password">
-                                Reset Password
-                            </button>
-
-                        </form>
-
-                    </td>
-
-                </tr>
-
-            <?php } ?>
-
-        <?php } else { ?>
+        <?php while ($row = $result->fetch_assoc()) { ?>
 
             <tr>
-                <td colspan="5">No pending requests found.</td>
+                <td>
+                    <?php echo (int) $row["request_id"]; ?>
+                </td>
+
+                <td>
+                    <?php echo htmlspecialchars($row["full_name"]); ?>
+                </td>
+
+                <td>
+                    <?php echo htmlspecialchars($row["phone"]); ?>
+                </td>
+
+                <td>
+                    <?php echo htmlspecialchars($row["requested_at"]); ?>
+                </td>
+
+                <td>
+                    <form method="POST"
+                        onsubmit="return confirm('Have you verified the customer identity? Generate a reset link?');">
+
+                        <input
+                            type="hidden"
+                            name="csrf_token"
+                            value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>"
+                        >
+
+                        <input
+                            type="hidden"
+                            name="request_id"
+                            value="<?php echo (int) $row["request_id"]; ?>"
+                        >
+
+                        <button type="submit" name="reset_password">
+                            Generate Reset Link
+                        </button>
+
+                    </form>
+                </td>
             </tr>
 
         <?php } ?>
 
     </table>
-    <br>
 
-    <a href="dashboard.php">Back to Dashboard</a>
+<?php } else { ?>
+
+    <p>No pending password reset requests.</p>
+
+<?php } ?>
+<br>
+
+<a href="dashboard.php">Back to Dashboard</a>
 
 </body>
 </html>
