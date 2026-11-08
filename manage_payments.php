@@ -599,86 +599,114 @@ if (!$result) {
                 <?php
                 $history_order_id = (int)$row["order_id"];
 
-                $history_stmt = $conn->prepare(
-                    "SELECT payment_id, payment_date, amount,
-                    payment_method, payment_status, collected_by,
-                    verified_by, verified_at
-                    FROM payments
-                    WHERE order_id = ?
-                    ORDER BY payment_id DESC"
-                );
+                      $history_stmt = $conn->prepare(
+                      "SELECT
+                         p.payment_id,
+                               p.payment_date,
+            p.amount,
+            p.payment_method,
+            p.payment_status,
+            p.collected_by,
+            p.verified_by,
+            p.verified_at,
+            collector.full_name AS collector_name,
+            verifier.full_name AS verifier_name
 
-                $history_stmt->bind_param("i", $history_order_id);
-                $history_stmt->execute();
+        FROM payments p
 
-                $history_result = $history_stmt->get_result();
-                ?>
+        LEFT JOIN users collector
+            ON p.collected_by = collector.user_id
 
-                <?php if ($history_result->num_rows > 0): ?>
+        LEFT JOIN users verifier
+            ON p.verified_by = verifier.user_id
 
-                    <?php while ($payment = $history_result->fetch_assoc()): ?>
+        WHERE p.order_id = ?
 
-                        <p>
-                            Payment ID:
-                            <?php echo $payment["payment_id"]; ?>
-                            <br>
+        ORDER BY p.payment_id DESC"
+    );
 
-                            Date:
-                            <?php echo htmlspecialchars($payment["payment_date"]); ?>
-                            <br>
+    $history_stmt->bind_param("i", $history_order_id);
+    $history_stmt->execute();
 
-                            Amount:
-                            Rs. <?php echo number_format($payment["amount"], 2); ?>
-                            <br>
+    $history_result = $history_stmt->get_result();
 
-                            Method:
-                            <?php echo htmlspecialchars($payment["payment_method"]); ?>
-                            <br>
+    ?>
 
-                            Status:
-                            <?php echo htmlspecialchars($payment["payment_status"]); ?>
+    <?php if ($history_result->num_rows > 0): ?>
 
-                            <?php if ($payment["payment_status"] === "Collected"): ?>
+        <?php while ($payment = $history_result->fetch_assoc()): ?>
 
-                                <br>
-                                Collected By User ID:
-                                <?php echo htmlspecialchars($payment["collected_by"] ?? "Not Available"); ?>
+            <p>
+                Payment ID:
+                <?php echo $payment["payment_id"]; ?>
+                <br>
 
-                                <br>
-                                Verification:
-                                Awaiting Admin/Staff Verification
+                Date:
+                <?php echo htmlspecialchars($payment["payment_date"]); ?>
+                <br>
 
-                            <?php elseif ($payment["payment_status"] === "Paid"): ?>
+                Amount:
+                Rs. <?php echo number_format($payment["amount"], 2); ?>
+                <br>
 
-                                <br>
-                                Verification: Confirmed
+                Method:
+                <?php echo htmlspecialchars($payment["payment_method"]); ?>
+                <br>
 
-                            <?php endif; ?>
+                Status:
+                <?php echo htmlspecialchars($payment["payment_status"]); ?>
+                <br>
 
-                        </p>
+                Collected By:
+                <?php echo htmlspecialchars($payment["collector_name"] ?? "Not Available"); ?>
 
-                        <hr>
+                <br>
 
-                    <?php endwhile; ?>
+                <?php if ($payment["payment_status"] === "Collected"): ?>
 
-                <?php else: ?>
+                    Verification Status: Awaiting Verification
 
-                    No Payments Yet
+                <?php elseif ($payment["payment_status"] === "Paid"): ?>
+
+                    Verification Status: Verified
+                    <br>
+
+                    Verified By:
+                    <?php echo htmlspecialchars($payment["verifier_name"] ?? "Not Available"); ?>
+
+                    <br>
+
+                    Verified At:
+                    <?php echo htmlspecialchars($payment["verified_at"] ?? "Not Available"); ?>
 
                 <?php endif; ?>
 
-                <?php $history_stmt->close(); ?>
+            </p>
 
-            </td>
+            <hr>
 
-        </tr>
+        <?php endwhile; ?>
+
+    <?php else: ?>
+
+        No Payments Yet
+
+    <?php endif; ?>
+
+    <?php $history_stmt->close(); ?>
+
+</td>
+
+</tr>
 
     <?php endwhile; ?>
 
 <?php else: ?>
 
     <tr>
-        <td colspan="9">No orders found.</td>
+        <td colspan="9">
+            No order records found.
+        </td>
     </tr>
 
 <?php endif; ?>
@@ -687,3 +715,12 @@ if (!$result) {
 
 </body>
 </html>
+    
+
+    
+
+
+
+
+
+
