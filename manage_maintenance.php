@@ -145,6 +145,116 @@ if (
         }
     }
 }
+  // GENERATE MAINTENANCE REMINDER NOTIFICATIONS
+
+$today = date("Y-m-d");
+
+try {
+
+    // Find due and overdue maintenance records
+    $due_stmt = $conn->prepare(
+        "SELECT maintenance_id, maintenance_type, next_due_date
+         FROM maintenance
+         WHERE status != 'Completed'
+         AND next_due_date IS NOT NULL
+         AND next_due_date <= ?"
+    );
+
+    $due_stmt->bind_param("s", $today);
+    $due_stmt->execute();
+
+    $due_records = $due_stmt->get_result();
+
+    // Get Admin and Staff user IDs
+    $users_result = $conn->query(
+        "SELECT user_id FROM users
+         WHERE role IN ('admin', 'staff')"
+    );
+
+    $recipient_ids = [];
+
+    while ($user = $users_result->fetch_assoc()) {
+        $recipient_ids[] = (int)$user["user_id"];
+    }
+
+    // Prepare statements
+    $log_stmt = $conn->prepare(
+        "INSERT IGNORE INTO maintenance_notification_logs
+         (maintenance_id, due_date, reminder_stage, user_id)
+         VALUES (?, ?, ?, ?)"
+    );
+
+    $notification_stmt = $conn->prepare(
+        "INSERT INTO notifications
+         (user_id, notification_type, message, is_read)
+         VALUES (?, 'Maintenance Reminder', ?, 0)"
+    );
+
+    while ($record = $due_records->fetch_assoc()) {
+
+        $maintenance_id = (int)$record["maintenance_id"];
+        $maintenance_type = $record["maintenance_type"];
+        $due_date = $record["next_due_date"];
+
+        if ($due_date === $today) {
+            $reminder_stage = "Due Today";
+            $message = $maintenance_type .
+                       " is due today. Due date: " . $due_date;
+        } else {
+            $reminder_stage = "Overdue";
+            $message = $maintenance_type .
+                       " is overdue. Due date: " . $due_date;
+        }
+
+        foreach ($recipient_ids as $recipient_id) {
+
+            $conn->begin_transaction();
+
+            try {
+
+                $log_stmt->bind_param(
+                    "issi",
+                    $maintenance_id,
+                    $due_date,
+                    $reminder_stage,
+                    $recipient_id
+                );
+
+                $log_stmt->execute();
+
+                // Send notification only for a new log record
+                if ($log_stmt->affected_rows === 1) {
+
+                    $notification_stmt->bind_param(
+                        "is",
+                        $recipient_id,
+                        $message
+                    );
+
+                    $notification_stmt->execute();
+                }
+
+                $conn->commit();
+
+            } catch (Throwable $e) {
+
+                $conn->rollback();
+                throw $e;
+            }
+        }
+    }
+
+    $due_stmt->close();
+    $log_stmt->close();
+    $notification_stmt->close();
+
+} catch (Throwable $notification_error) {
+
+    error_log(
+        "Maintenance Notification Error: " .
+        $notification_error->getMessage()
+    );
+}
 ?>
 <!DOCTYPE html>
 <html>
@@ -215,7 +325,7 @@ if (
 <h3>Maintenance Records</h3>
 
 <?php
-$today = date("Y-m-d");
+
 $records = $conn->query(
     "SELECT * FROM maintenance
      ORDER BY maintenance_date DESC, maintenance_id DESC"
