@@ -135,6 +135,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             $order_items = [];
 
+            $low_stock_products = [];
+
             $total_amount = 0;
 
             $used_products = [];
@@ -163,7 +165,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     );
                 }
 
-
+                                                  
                 if (
                     $quantity === false ||
                     $quantity === null ||
@@ -234,13 +236,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $item_total = $unit_price * $quantity;
 
                 $total_amount += $item_total;
-
+                
 
                 $order_items[] = [
-                    "product_id" => (int) $product["product_id"],
-                    "quantity" => $quantity,
-                    "unit_price" => $unit_price
-                ];
+                     "product_id" => (int) $product["product_id"],
+                     "product_name" => $product["product_name"],
+                        "quantity" => $quantity,
+                        "unit_price" => $unit_price,
+                         "stock_before" => (int) $product["stock_quantity"]
+                        ];
             }
 
 
@@ -323,12 +327,122 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         "Stock update failed. Please try again."
                     );
                 }
+
+                 // CHECK REMAINING STOCK
+
+                  $remaining_stock = $item["stock_before"] - $item["quantity"];
+
+                    if ($item["stock_before"] > 10 && $remaining_stock <= 10) {
+
+                         $low_stock_products[] = [
+                          "product_id" => $item["product_id"],
+                           "product_name" => $item["product_name"],
+                             "stock_quantity" => $remaining_stock
+                         ];
+
+                    }
+                }
+
+                    // CHECK UPDATED STOCK
+
+                    $remaining_stock = $item["stock_before"] - $item["quantity"];
+
+
+                    // SAVE ALL CHANGES
+
+                       $conn->commit();
+                           // SEND LOW STOCK NOTIFICATIONS
+
+try {
+
+    foreach ($low_stock_products as $low_product) {
+
+        $low_stock_message = $low_product["product_name"] .
+                             " is running low. Remaining stock: " .
+                             $low_product["stock_quantity"];
+
+        $users_sql = "SELECT user_id
+                      FROM users
+                      WHERE role IN ('admin', 'staff')";
+
+        $users_result = $conn->query($users_sql);
+
+        if ($users_result) {
+
+            $notification_sql = "INSERT INTO notifications
+                                 (user_id, notification_type, message, is_read)
+                                 VALUES (?, 'Low Stock', ?, 0)";
+
+            $notification_stmt = $conn->prepare($notification_sql);
+
+            while ($user = $users_result->fetch_assoc()) {
+
+                $notification_user_id = (int) $user["user_id"];
+
+                $notification_stmt->bind_param(
+                    "is",
+                    $notification_user_id,
+                    $low_stock_message
+                );
+
+                $notification_stmt->execute();
             }
 
+            $notification_stmt->close();
+            $users_result->free();
+        }
+    }
 
-            // SAVE ALL CHANGES
+              } catch (Throwable $notification_error) {
 
-            $conn->commit();
+                      error_log("Low Stock Notification Error: " .
+                           $notification_error->getMessage());
+
+                        }
+                         // SEND NEW ORDER NOTIFICATIONS TO ADMIN AND STAFF
+
+                          try {
+
+                         $notification_message = "New Order #" . $order_id .
+                            " has been placed. Total: Rs. " .
+                            number_format($total_amount, 2);
+
+                                  $users_sql = "SELECT user_id
+                                          FROM users
+                                           WHERE role IN ('admin', 'staff')";
+
+                               $users_result = $conn->query($users_sql);
+
+                                  if ($users_result) {
+
+                               $notification_sql = "INSERT INTO notifications
+                             (user_id, notification_type, message, is_read)
+                             VALUES (?, 'New Order', ?, 0)";
+
+                                        $notification_stmt = $conn->prepare($notification_sql);
+
+                                         while ($user = $users_result->fetch_assoc()) {
+
+                         $notification_user_id = (int) $user["user_id"];
+
+            $notification_stmt->bind_param(
+                "is",
+                $notification_user_id,
+                $notification_message
+            );
+
+            $notification_stmt->execute();
+        }
+
+        $notification_stmt->close();
+        $users_result->free();
+    }
+
+} catch (Throwable $notification_error) {
+
+    error_log("Notification Error: " . $notification_error->getMessage());
+
+}
 
             $message = "Order placed successfully! " .
                        "Order ID: " . $order_id .
