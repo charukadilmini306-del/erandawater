@@ -89,9 +89,36 @@ $insert->bind_param(
 
             if ($insert->execute()) {
 
-                $message = "Delivery assigned successfully!";
+    $message = "Delivery assigned successfully!";
 
-            } else {
+    // Create notification for assigned delivery person
+    $notification_message =
+        "A new delivery has been assigned to you. Order #" . $order_id;
+
+    $notification_type = "New Delivery Assignment";
+
+    $notification = $conn->prepare(
+        "INSERT INTO notifications
+         (user_id, notification_type, message)
+         VALUES (?, ?, ?)"
+    );
+
+    $notification->bind_param(
+        "iss",
+        $delivery_person_id,
+        $notification_type,
+        $notification_message
+    );
+
+    if (!$notification->execute()) {
+        error_log("Delivery notification failed: " . $notification->error);
+    }
+
+    $notification->close();
+
+}
+            
+            else {
 
                 $message = "Error assigning delivery: " . $insert->error;
 

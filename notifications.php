@@ -62,11 +62,118 @@ if (
     exit();
 }
 
+// Open notification and redirect to related page
+if (
+    $_SERVER["REQUEST_METHOD"] === "POST" &&
+    isset($_POST["open_notification"])
+) {
+    $notification_id = filter_var(
+        $_POST["notification_id"] ?? 0,
+        FILTER_VALIDATE_INT
+    );
+
+    $csrf_token = $_POST["csrf_token"] ?? "";
+
+    if (
+        !isset($_SESSION["csrf_token"]) ||
+        !hash_equals($_SESSION["csrf_token"], $csrf_token)
+    ) {
+        die("Invalid request.");
+    }
+
+    if ($notification_id === false || $notification_id <= 0) {
+        header("Location: notifications.php");
+        exit();
+    }
+
+    $stmt = $conn->prepare(
+        "SELECT notification_type
+         FROM notifications
+         WHERE notification_id = ?
+         AND user_id = ?"
+    );
+
+    $stmt->bind_param("ii", $notification_id, $user_id);
+    $stmt->execute();
+
+    $notification_result = $stmt->get_result();
+    $notification = $notification_result->fetch_assoc();
+    $stmt->close();
+
+    if (!$notification) {
+        header("Location: notifications.php");
+        exit();
+    }
+
+    $update = $conn->prepare(
+        "UPDATE notifications
+         SET is_read = 1
+         WHERE notification_id = ?
+         AND user_id = ?"
+    );
+
+    $update->bind_param("ii", $notification_id, $user_id);
+    $update->execute();
+    $update->close();
+
+    $target = getNotificationLink($notification["notification_type"]);
+
+    header("Location: " . $target);
+    exit();
+}
 // Generate CSRF token
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
 }
+     
+// Mark all notifications as read
+if (
+    $_SERVER["REQUEST_METHOD"] === "POST" &&
+    isset($_POST["mark_all_as_read"])
+) {
+    $csrf_token = $_POST["csrf_token"] ?? "";
 
+    if (
+        !isset($_SESSION["csrf_token"]) ||
+        !hash_equals($_SESSION["csrf_token"], $csrf_token)
+    ) {
+        die("Invalid request.");
+    }
+
+    $update = $conn->prepare(
+        "UPDATE notifications
+         SET is_read = 1
+         WHERE user_id = ?
+         AND is_read = 0"
+    );
+
+    $update->bind_param("i", $user_id);
+    $update->execute();
+    $update->close();
+
+    header("Location: notifications.php");
+    exit();
+}
+ function getNotificationLink($notification_type) {
+
+    if ($notification_type === "New Order") {
+        return "manage_orders.php";
+    }
+
+    if ($notification_type === "Low Stock") {
+        return "products.php";
+    }
+
+    if ($notification_type === "Maintenance Reminder") {
+        return "manage_maintenance.php";
+    }
+
+    if ($notification_type === "New Delivery Assignment") {
+    return "delivery_dashboard.php";
+   }
+
+    return "notifications.php";
+}
 // Get notifications for the logged-in user
 $sql = "SELECT
             notification_id,
@@ -120,6 +227,24 @@ $result->data_seek(0);
         <?php echo $unread_count; ?>
     </p>
 
+          <?php if ($unread_count > 0): ?>
+
+    <form method="POST">
+
+        <input
+            type="hidden"
+            name="csrf_token"
+            value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>"
+        >
+
+        <button type="submit" name="mark_all_as_read">
+            Mark All as Read
+        </button>
+
+    </form>
+
+    <?php endif; ?>
+
     <h3>My Notifications</h3>
 
     <?php if ($result->num_rows > 0): ?>
@@ -148,6 +273,25 @@ $result->data_seek(0);
                         : "Unread";
                     ?>
                 </p>
+                    <form method="POST">
+
+    <input
+        type="hidden"
+        name="csrf_token"
+        value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>"
+    >
+
+    <input
+        type="hidden"
+        name="notification_id"
+        value="<?php echo (int) $notification["notification_id"]; ?>"
+    >
+
+    <button type="submit" name="open_notification">
+        Open Notification
+    </button>
+
+      </form>
                       <?php if ((int) $notification["is_read"] === 0): ?>
 
     <form method="POST">
