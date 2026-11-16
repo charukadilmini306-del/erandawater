@@ -14,18 +14,42 @@ if (
 }
 
 $message = "";
+ // Generate CSRF Token
+if (empty($_SESSION["csrf_token"])) {
+    $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
+}
 // Handle Delivery Assignment
 if (isset($_POST["assign_delivery"])) {
+
+      // Verify CSRF Token
+if (
+    !isset($_POST["csrf_token"]) ||
+    !hash_equals($_SESSION["csrf_token"], $_POST["csrf_token"])
+) {
+    die("Invalid security token. Please refresh the page and try again.");
+}
 
     $order_id = intval($_POST["order_id"]);
     $delivery_person_id = intval($_POST["delivery_person_id"]);
     $delivery_date = $_POST["delivery_date"];
 
+    // Validate Delivery Date
+$date_check = DateTime::createFromFormat('!Y-m-d', $delivery_date);
+
+if (
+    !$date_check ||
+    $date_check->format('Y-m-d') !== $delivery_date ||
+    $delivery_date < date('Y-m-d')
+) {
+    $message = "Please select a valid delivery date (today or a future date).";
+} else {
+
     // Check whether the selected order exists
-    $order_check = $conn->prepare(
-        "SELECT order_id FROM orders
-         WHERE order_id = ? AND order_status != 'Cancelled'"
-    );
+       $order_check = $conn->prepare(
+    "SELECT order_id FROM orders
+     WHERE order_id = ?
+     AND order_status NOT IN ('Cancelled', 'Delivered')"
+   );
 
     $order_check->bind_param("i", $order_id);
     $order_check->execute();
@@ -55,84 +79,127 @@ if (isset($_POST["assign_delivery"])) {
         $delivery_person = $person["full_name"];
 
         // Check whether order is already assigned
-        $duplicate_check = $conn->prepare(
-            "SELECT delivery_id FROM deliveries
-             WHERE order_id = ?"
+$duplicate_check = $conn->prepare(
+    "SELECT delivery_id FROM deliveries
+     WHERE order_id = ?"
+);
+
+$duplicate_check->bind_param("i", $order_id);
+$duplicate_check->execute();
+
+$duplicate_result = $duplicate_check->get_result();
+
+if ($duplicate_result->num_rows > 0) {
+
+    $message = "This order is already assigned.";
+
+} else {
+
+    // Prepare delivery assignment
+    $insert = $conn->prepare(
+        "INSERT INTO deliveries
+        (order_id, delivery_person_id, delivery_person,
+         delivery_date, delivery_status)
+        VALUES (?, ?, ?, ?, 'Pending')"
+    );
+
+    if ($insert) {
+
+        $insert->bind_param(
+            "iiss",
+            $order_id,
+            $delivery_person_id,
+            $delivery_person,
+            $delivery_date
         );
 
-        $duplicate_check->bind_param("i", $order_id);
-        $duplicate_check->execute();
+        // Start transaction
+        $conn->begin_transaction();
 
-        $duplicate_result = $duplicate_check->get_result();
+        if ($insert->execute()) {
 
-        if ($duplicate_result->num_rows > 0) {
+            // Create notification
+            $notification_message =
+                "A new delivery has been assigned to you. Order #" . $order_id;
 
-            $message = "This order is already assigned.";
+            $notification_type = "New Delivery Assignment";
 
-        } else {
+            $notification = $conn->prepare(
+                "INSERT INTO notifications
+                 (user_id, notification_type, message)
+                 VALUES (?, ?, ?)"
+            );
 
-            // Save delivery assignment
-            $insert = $conn->prepare(
-    "INSERT INTO deliveries
-    (order_id, delivery_person_id, delivery_person,
-     delivery_date, delivery_status)
-    VALUES (?, ?, ?, ?, 'Pending')"
-);
+            if ($notification) {
 
-$insert->bind_param(
-    "iiss",
-    $order_id,
-    $delivery_person_id,
-    $delivery_person,
-    $delivery_date
-);
+                $notification->bind_param(
+                    "iss",
+                    $delivery_person_id,
+                    $notification_type,
+                    $notification_message
+                );
 
-            if ($insert->execute()) {
+                if ($notification->execute()) {
 
-    $message = "Delivery assigned successfully!";
+                    $conn->commit();
+                    $message = "Delivery assigned successfully!";
 
-    // Create notification for assigned delivery person
-    $notification_message =
-        "A new delivery has been assigned to you. Order #" . $order_id;
+                } else {
 
-    $notification_type = "New Delivery Assignment";
+                    $conn->rollback();
+                    error_log("Notification failed: " . $notification->error);
+                    $message = "Delivery assignment failed. Please try again.";
 
-    $notification = $conn->prepare(
-        "INSERT INTO notifications
-         (user_id, notification_type, message)
-         VALUES (?, ?, ?)"
-    );
+                }
 
-    $notification->bind_param(
-        "iss",
-        $delivery_person_id,
-        $notification_type,
-        $notification_message
-    );
+                $notification->close();
 
-    if (!$notification->execute()) {
-        error_log("Delivery notification failed: " . $notification->error);
-    }
+            } else {
 
-    $notification->close();
-
-}
-            
-            else {
-
-                $message = "Error assigning delivery: " . $insert->error;
+                $conn->rollback();
+                error_log("Notification preparation failed: " . $conn->error);
+                $message = "Delivery assignment failed. Please try again.";
 
             }
 
-            $insert->close();
+        } else {
+
+            $conn->rollback();
+
+            if ($insert->errno === 1062) {
+                $message = "This order is already assigned.";
+            } else {
+                error_log("Delivery assignment failed: " . $insert->error);
+                $message = "Unable to assign delivery. Please try again.";
+            }
+
         }
 
-        $duplicate_check->close();
+        $insert->close();
+
+    } else {
+
+        error_log("Delivery preparation failed: " . $conn->error);
+        $message = "Unable to assign delivery. Please try again.";
+
     }
 
+}
+
+$duplicate_check->close();
+    }
+    
     $order_check->close();
     $person_check->close();
-}
+
+    } // End date validation else block
+
+} // End assign_delivery POST block
+
+
+
+    
+
 
 // Get all delivery persons
 $sql = "SELECT user_id, full_name
@@ -156,7 +223,7 @@ $sql = "SELECT
             FROM deliveries d
             WHERE d.order_id = o.order_id
         )
-        AND o.order_status != 'Cancelled'
+        AND o.order_status NOT IN ('Cancelled', 'Delivered')
         ORDER BY o.order_id DESC";
 
 $order_result = $conn->query($sql);
@@ -211,6 +278,12 @@ $assigned_result = $conn->query($assigned_sql);
      <?php endif; ?>
 
     <form method="POST">
+
+      <input
+    type="hidden"
+    name="csrf_token"
+    value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>"
+>
 
         <label>Select Order:</label><br>
 
