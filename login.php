@@ -1,3 +1,4 @@
+
 <?php
 session_start();
 require_once "config/database.php";
@@ -11,16 +12,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     $sql = "SELECT * FROM users WHERE username = ?";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("s", $username);
-    $stmt->execute();
 
-    $result = $stmt->get_result();
+    if ($stmt) {
 
-    if ($result->num_rows === 1) {
+        $stmt->bind_param("s", $username);
+        $stmt->execute();
 
+        $result = $stmt->get_result();
         $user = $result->fetch_assoc();
 
-        if (password_verify($password, $user["password"])) {
+        $stmt->close();
+
+        if ($user && password_verify($password, $user["password"])) {
 
             session_regenerate_id(true);
 
@@ -30,7 +33,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             if ($user["role"] === "admin") {
 
-                header("Location: dashboard.php");
+                header("Location: admin_dashboard.php");
 
             } elseif ($user["role"] === "staff") {
 
@@ -51,20 +54,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             exit();
 
         } else {
-            $message = "Invalid password.";
+
+            $message = "Invalid username or password.";
         }
 
     } else {
-        $message = "Username not found.";
-    }
 
-    $stmt->close();
+        $message = "Login error. Please try again.";
+    }
 }
 ?>
 
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
+    <meta charset="UTF-8">
     <title>Eranda Water - Login</title>
 </head>
 
@@ -74,7 +79,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     <h3>Login</h3>
 
-    <?php if ($message != ""): ?>
+    <?php if ($message !== ""): ?>
         <p><?php echo htmlspecialchars($message); ?></p>
     <?php endif; ?>
 
@@ -93,6 +98,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         <button type="submit">Login</button>
 
     </form>
+        
+
+    <p>
+        <a href="user_forgot_password.php">
+            Forgot Password?
+        </a>
+    </p>
 
 </body>
 </html>
+
+

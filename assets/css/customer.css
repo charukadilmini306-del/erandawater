@@ -1,0 +1,364 @@
+
+/* =====================================
+   ERANDA WATER - CUSTOMER DASHBOARD
+   OFFICIAL WEBSITE THEME
+===================================== */
+
+:root {
+    --primary: #102B4E;
+    --secondary: #244D79;
+    --light-blue: #EEF5FF;
+    --white: #FFFFFF;
+    --text: #26384D;
+    --muted: #718096;
+    --amber: #FFB000;
+    --amber-hover: #E09A00;
+    --border: #E2EAF3;
+}
+
+/* GENERAL */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--light-blue);
+    color: var(--text);
+}
+
+a {
+    text-decoration: none;
+}
+
+/* MAIN LAYOUT */
+
+.app-layout {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+}
+
+/* SIDEBAR */
+
+.sidebar {
+    width: 260px;
+    min-width: 260px;
+    min-height: 100vh;
+    background: var(--primary);
+    padding: 25px 18px;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-brand {
+    text-align: center;
+    padding-bottom: 25px;
+    border-bottom: 1px solid rgba(255,255,255,0.15);
+}
+
+.sidebar-brand img {
+    width: 200px;
+    height: 250px;
+    object-fit: contain;
+    margin-bottom: 12px;
+    border-radius: 12px;
+    background: var(--primary);
+    padding: 0;
+}
+
+.sidebar-brand h2 {
+    color: var(--white);
+    font-size: 21px;
+    margin-bottom: 6px;
+}
+
+.sidebar-brand p {
+    color: #C9DDF5;
+    font-size: 13px;
+}
+
+/* SIDEBAR NAVIGATION */
+
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin-top: 25px;
+}
+
+.sidebar-nav a {
+    display: block;
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 8px;
+    color: var(--white);
+    font-size: 13px;
+    transition: 0.2s ease;
+}
+
+.sidebar-nav a:hover {
+    background: var(--secondary);
+    color: var(--white);
+}
+
+.sidebar-nav a.active {
+    background: var(--light-blue);
+    color: var(--primary);
+    font-weight: bold;
+}
+
+/* LOGOUT BUTTON */
+
+.sidebar-footer {
+    margin-top: auto;
+    padding: 20px 0 0;
+    width: 100%;
+}
+
+.sidebar-footer a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 45px;
+    background: var(--amber);
+    color: var(--primary);
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: bold;
+    transition: 0.2s ease;
+}
+
+.sidebar-footer a:hover {
+    background: var(--amber-hover);
+    color: var(--primary);
+}
+
+/* MAIN CONTENT */
+
+.main-content {
+    flex: 1;
+    min-width: 0;
+    padding: 30px;
+}
+
+/* TOPBAR */
+
+.topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    background: var(--white);
+    padding: 20px 25px;
+    border-radius: 12px;
+    margin-bottom: 25px;
+    box-shadow: 0 3px 12px rgba(16,43,78,0.06);
+}
+
+.topbar h2 {
+    color: var(--primary);
+    font-size: 23px;
+    margin-bottom: 6px;
+}
+
+.topbar p {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+/* CUSTOMER PROFILE */
+
+.customer-profile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--light-blue);
+    color: var(--primary);
+    padding: 10px 16px;
+    border-radius: 25px;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.profile-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: var(--white);
+}
+
+/* WELCOME CARD */
+
+.welcome-card {
+    background: linear-gradient(120deg, #102B4E, #244D79);
+    padding: 30px;
+    border-radius: 13px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 14px rgba(16,43,78,0.10);
+}
+
+.welcome-card h1 {
+    color: var(--white);
+    font-size: 25px;
+    margin-bottom: 12px;
+}
+
+.welcome-card p {
+    color: #DCEAFF;
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+/* DASHBOARD SECTION */
+
+.dashboard-section {
+    width: 100%;
+    margin-top: 20px;
+}
+
+.section-heading {
+    margin-bottom: 20px;
+}
+
+.section-heading h2 {
+    color: var(--primary);
+    font-size: 21px;
+    margin-bottom: 7px;
+}
+
+.section-heading p {
+    color: var(--muted);
+    font-size: 14px;
+}
+
+/* DASHBOARD CARDS */
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+}
+
+.dashboard-card {
+    display: block;
+    background: var(--white);
+    padding: 25px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    border-left: 5px solid var(--primary);
+    box-shadow: 0 3px 12px rgba(16,43,78,0.05);
+    transition: 0.2s ease;
+}
+
+.card-icon {
+    margin-bottom: 15px;
+}
+
+.card-icon span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    background: var(--light-blue);
+    color: var(--primary);
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.dashboard-card h3 {
+    color: var(--primary);
+    font-size: 17px;
+    margin-bottom: 12px;
+}
+
+.dashboard-card p {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.6;
+    margin-bottom: 18px;
+}
+
+.card-link {
+    color: var(--secondary);
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.dashboard-card:hover {
+    transform: translateY(-4px);
+    border-left-color: var(--amber);
+    box-shadow: 0 7px 18px rgba(16,43,78,0.10);
+}
+
+/* FOOTER */
+
+.footer {
+    margin-top: 40px;
+    padding: 20px 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+/* RESPONSIVE DESIGN */
+
+@media screen and (max-width: 1100px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media screen and (max-width: 850px) {
+    .app-layout {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        min-width: 100%;
+        min-height: auto;
+    }
+
+    .sidebar-footer {
+        margin-top: 15px;
+    }
+
+    .main-content {
+        width: 100%;
+        padding: 20px;
+    }
+}
+
+@media screen and (max-width: 550px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .topbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .welcome-card {
+        padding: 22px;
+    }
+
+    .welcome-card h1 {
+        font-size: 21px;
+    }
+
+    .main-content {
+        padding: 12px;
+    }
+}

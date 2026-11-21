@@ -1,9 +1,10 @@
+
 <?php
 session_start();
 
 require_once "config/database.php";
 
-// Check login and delivery role
+// Check delivery person login
 if (
     !isset($_SESSION["user_id"]) ||
     !isset($_SESSION["role"]) ||
@@ -14,102 +15,91 @@ if (
 }
 
 $delivery_person_id = (int) $_SESSION["user_id"];
-$full_name = $_SESSION["full_name"];
+$full_name = htmlspecialchars($_SESSION["full_name"] ?? "Delivery Person");
 
 $message = "";
+$error = "";
 
 // Generate CSRF token
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
 }
 
-// Handle delivery status update
-if (
-    $_SERVER["REQUEST_METHOD"] === "POST" &&
-    isset($_POST["update_status"])
-) {
+// Update delivery status
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["update_status"])) {
 
-    $delivery_id = intval($_POST["delivery_id"] ?? 0);
-    $new_status = $_POST["new_status"] ?? "";
-    $csrf_token = $_POST["csrf_token"] ?? "";
-
-    if (!hash_equals($_SESSION["csrf_token"], $csrf_token)) {
-
-        $message = "Invalid request. Please try again.";
-
+    if (
+        !isset($_POST["csrf_token"]) ||
+        !hash_equals($_SESSION["csrf_token"], $_POST["csrf_token"])
+    ) {
+        $error = "Invalid request. Please try again.";
     } else {
 
-        if ($new_status === "Out for Delivery") {
-            $current_status = "Pending";
+        $delivery_id = filter_input(INPUT_POST, "delivery_id", FILTER_VALIDATE_INT);
+        $new_status = $_POST["new_status"] ?? "";
 
-        } elseif ($new_status === "Delivered") {
-            $current_status = "Out for Delivery";
-
+        if (!$delivery_id || !in_array($new_status, ["Out for Delivery", "Delivered"], true)) {
+            $error = "Invalid delivery information.";
         } else {
-            $current_status = "";
-        }
 
-        if ($current_status === "") {
-
-            $message = "Invalid delivery status.";
-
-        } else {
+            $conn->begin_transaction();
 
             try {
-
-                $conn->begin_transaction();
-
-                // Verify assigned delivery and lock the order
-                $check = $conn->prepare(
-                    "SELECT d.order_id
+                // Get assigned delivery and current status
+                $stmt = $conn->prepare(
+                    "SELECT d.order_id, d.delivery_status, o.order_status
                      FROM deliveries d
-                     INNER JOIN orders o
-                        ON d.order_id = o.order_id
+                     INNER JOIN orders o ON d.order_id = o.order_id
                      WHERE d.delivery_id = ?
                      AND d.delivery_person_id = ?
-                     AND d.delivery_status = ?
                      AND o.order_status != 'Cancelled'
                      FOR UPDATE"
                 );
 
-                $check->bind_param(
-                    "iis",
-                    $delivery_id,
-                    $delivery_person_id,
-                    $current_status
-                );
+                $stmt->bind_param("ii", $delivery_id, $delivery_person_id);
+                $stmt->execute();
 
-                $check->execute();
-
-                $check_result = $check->get_result();
-                $delivery = $check_result->fetch_assoc();
-
-                $check->close();
+                $result = $stmt->get_result();
+                $delivery = $result->fetch_assoc();
+                $stmt->close();
 
                 if (!$delivery) {
-                    throw new Exception(
-                        "Delivery not found or status cannot be changed."
-                    );
+                    throw new Exception("Delivery not found or not assigned to you.");
                 }
 
                 $order_id = (int) $delivery["order_id"];
+                $current_status = $delivery["delivery_status"];
 
-                // Update deliveries table
-                $update_delivery = $conn->prepare(
-                    "UPDATE deliveries
-                     SET delivery_status = ?,
-                         delivered_at = CASE
-                             WHEN ? = 'Delivered' THEN NOW()
-                             ELSE delivered_at
-                         END
-                     WHERE delivery_id = ?
-                     AND delivery_person_id = ?
-                     AND delivery_status = ?"
-                );
+                // Validate allowed status transition
+                $valid_transition =
+                    ($current_status === "Pending" && $new_status === "Out for Delivery") ||
+                    ($current_status === "Out for Delivery" && $new_status === "Delivered");
+
+                if (!$valid_transition || $delivery["order_status"] !== $current_status) {
+                    throw new Exception("This delivery status cannot be updated.");
+                }
+
+                // Update delivery record
+                if ($new_status === "Delivered") {
+                    $update_delivery = $conn->prepare(
+                        "UPDATE deliveries
+                         SET delivery_status = ?, delivered_at = NOW()
+                         WHERE delivery_id = ?
+                         AND delivery_person_id = ?
+                         AND delivery_status = ?"
+                    );
+                } else {
+                    $update_delivery = $conn->prepare(
+                        "UPDATE deliveries
+                         SET delivery_status = ?
+                         WHERE delivery_id = ?
+                         AND delivery_person_id = ?
+                         AND delivery_status = ?"
+                    );
+                }
 
                 $update_delivery->bind_param(
-                    "ssiis",
-                    $new_status,
+                    "siis",
                     $new_status,
                     $delivery_id,
                     $delivery_person_id,
@@ -119,261 +109,275 @@ if (
                 $update_delivery->execute();
 
                 if ($update_delivery->affected_rows !== 1) {
-
-                    $update_delivery->close();
-
                     throw new Exception("Delivery update failed.");
                 }
 
                 $update_delivery->close();
 
-                // Update orders table
+                // Update related order status
                 $update_order = $conn->prepare(
                     "UPDATE orders
                      SET order_status = ?
                      WHERE order_id = ?
-                     AND order_status != 'Cancelled'"
+                     AND order_status = ?"
                 );
 
                 $update_order->bind_param(
-                    "si",
+                    "sis",
                     $new_status,
-                    $order_id
+                    $order_id,
+                    $current_status
                 );
 
                 $update_order->execute();
 
                 if ($update_order->affected_rows !== 1) {
-                    $update_order->close();
-
-                    throw new Exception("Order update failed.");
+                    throw new Exception("Order status update failed.");
                 }
 
                 $update_order->close();
 
-                // Save both updates together
                 $conn->commit();
 
-                $message = "Delivery and order status updated successfully!";
+                $message = "Delivery status updated successfully.";
 
-            } catch (Throwable $e) {
-
+            } catch (Exception $e) {
                 $conn->rollback();
-
-                $message = "Status update failed. Please try again.";
+                $error = $e->getMessage();
             }
         }
     }
 }
-// Get assigned deliveries
-$sql = "SELECT
-            d.delivery_id,
-            d.order_id,
-            d.delivery_date,
-            d.delivery_status,
-            d.delivered_at,
-            o.delivery_address,
-            o.total_amount,
-            c.full_name AS customer_name,
-            c.phone AS customer_phone
-        FROM deliveries d
-        INNER JOIN orders o
-            ON d.order_id = o.order_id
-        INNER JOIN customers c
-            ON o.customer_id = c.customer_id
-        WHERE d.delivery_person_id = ?
-        ORDER BY d.delivery_date DESC";
 
-$stmt = $conn->prepare($sql);
+// Get assigned deliveries
+$stmt = $conn->prepare(
+    "SELECT
+        d.delivery_id,
+        d.order_id,
+        d.delivery_status,
+        d.delivery_date,
+        d.delivered_at,
+        c.full_name,
+        c.phone,
+        c.address,
+        o.total_amount
+     FROM deliveries d
+     INNER JOIN orders o ON d.order_id = o.order_id
+     INNER JOIN customers c ON o.customer_id = c.customer_id
+     WHERE d.delivery_person_id = ?
+     ORDER BY d.delivery_date DESC"
+);
 
 $stmt->bind_param("i", $delivery_person_id);
-
 $stmt->execute();
+$deliveries = $stmt->get_result();
 
-$result = $stmt->get_result();
-
+$total_deliveries = $deliveries->num_rows;
 ?>
-<!DOCTYPE html>
-<html>
 
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>Delivery Person Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delivery Dashboard | Eranda Water</title>
+
+    <link rel="stylesheet" href="assets/css/delivery.css">
 </head>
 
 <body>
 
-    <h1>Eranda Water Management System</h1>
+<div class="app-layout">
 
-    <h2>Delivery Dashboard</h2>
+    <aside class="sidebar">
 
-    <h3>
-        Welcome,
-        <?php echo htmlspecialchars($full_name); ?>!
-    </h3>
+        <div class="sidebar-brand">
+            <img src="assets/images/eranda 2.jpeg" alt="Eranda Water Logo">
+            <h2>Eranda Water</h2>
+            <p>Delivery Panel</p>
+        </div>
 
-    <p>You are logged in as a Delivery Person.</p>
+        <nav class="sidebar-nav">
+            <a href="delivery_dashboard.php" class="active">Delivery Dashboard</a>
+            <a href="delivery_payment.php">Payment Collection</a>
+            <a href="user_change_password.php">Change Password</a>
+        </nav>
 
-    <h3>My Assigned Deliveries</h3>
+        <div class="sidebar-footer">
+            <a href="logout.php">Logout</a>
+        </div>
 
-    <!-- Display message -->
-    <?php if (!empty($message)): ?>
+    </aside>
 
-        <p>
-            <?php echo htmlspecialchars($message); ?>
-        </p>
+    <main class="main-content">
 
-    <?php endif; ?>
+        <header class="topbar">
+            <div>
+                <h2>Delivery Dashboard</h2>
+                <p>Eranda Water Delivery Management</p>
+            </div>
 
-    <?php if ($result->num_rows > 0): ?>
+            <div class="admin-profile">
+                <span><?php echo $full_name; ?></span>
+            </div>
+        </header>
 
-        <table border="1" cellpadding="10">
-            <tr>
-                <th>Order ID</th>
-                <th>Customer Name</th>
-                <th>Phone</th>
-                <th>Delivery Address</th>
-                <th>Delivery Date</th>
-                <th>Status</th>
-                <th>Delivered At</th>
-                <th>Amount</th>
-                <th>Action</th>
-            </tr>
+        <section class="welcome-card">
+            <h2>Welcome, Delivery Person!</h2>
+            <p>Manage your assigned deliveries and update delivery statuses.</p>
+        </section>
 
-            <?php while ($row = $result->fetch_assoc()): ?>
+        <?php if ($message !== ""): ?>
+            <div class="alert alert-success">
+                <?php echo htmlspecialchars($message); ?>
+            </div>
+        <?php endif; ?>
 
-                <tr>
+        <?php if ($error !== ""): ?>
+            <div class="alert alert-error">
+                <?php echo htmlspecialchars($error); ?>
+            </div>
+        <?php endif; ?>
 
-                    <td>
-                        <?php echo $row["order_id"]; ?>
-                    </td>
+        <section class="dashboard-section">
 
-                    <td>
-                        <?php echo htmlspecialchars($row["customer_name"]); ?>
-                    </td>
+            <div class="section-heading">
+                <h2>My Assigned Deliveries</h2>
+                <p>Total assigned deliveries: <?php echo $total_deliveries; ?></p>
+            </div>
 
-                    <td>
-                        <?php echo htmlspecialchars($row["customer_phone"]); ?>
-                    </td>
-                    <td>
-                        <?php echo htmlspecialchars($row["delivery_address"]); ?>
-                    </td>
+            <div class="table-container">
 
-                    <td>
-                        <?php
-                        echo htmlspecialchars(
-                            $row["delivery_date"] ?? "Not Set"
-                        );
-                        ?>
-                    </td>
+                <table class="data-table">
 
-                    <td>
-                        <?php echo htmlspecialchars($row["delivery_status"]); ?>
-                    </td>
+                    <thead>
+                        <tr>
+                            <th>Order ID</th>
+                            <th>Customer</th>
+                            <th>Phone</th>
+                            <th>Delivery Address</th>
+                            <th>Delivery Date</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
 
-                    <td>
-                        <?php
-                        echo htmlspecialchars(
-                            $row["delivered_at"] ?? "Not Delivered"
-                        );
-                        ?>
-                    </td>
+                    <tbody>
 
-                    <td>
-                        <?php
-                        echo number_format(
-                            (float) $row["total_amount"],
-                            2
-                        );
-                        ?>
-                    </td>
-                    <td>
+                    <?php if ($total_deliveries > 0): ?>
 
-                        <?php if ($row["delivery_status"] === "Pending"): ?>
+                        <?php while ($row = $deliveries->fetch_assoc()): ?>
 
-                            <form method="POST">
+                            <tr>
+                                <td>#<?php echo (int) $row["order_id"]; ?></td>
 
-                                <input
-                                    type="hidden"
-                                    name="csrf_token"
-                                    value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>"
-                                >
+                                <td>
+                                    <?php echo htmlspecialchars($row["full_name"]); ?>
+                                </td>
 
-                                <input
-                                    type="hidden"
-                                    name="delivery_id"
-                                    value="<?php echo (int) $row["delivery_id"]; ?>"
-                                >
+                                <td>
+                                    <?php echo htmlspecialchars($row["phone"]); ?>
+                                </td>
 
-                                <input
-                                    type="hidden"
-                                    name="new_status"
-                                    value="Out for Delivery"
-                                >
+                                <td>
+                                    <?php echo htmlspecialchars($row["address"]); ?>
+                                </td>
 
-                                <button
-                                    type="submit"
-                                    name="update_status"
-                                >
-                                    Start Delivery
-                                </button>
+                                <td>
+                                    <?php echo htmlspecialchars($row["delivery_date"] ?? "Not set"); ?>
+                                </td>
 
-                            </form>
-                            <?php elseif ($row["delivery_status"] === "Out for Delivery"): ?>
+                                <td>
+                                    Rs. <?php echo number_format((float) $row["total_amount"], 2); ?>
+                                </td>
 
-                            <form method="POST">
+                                <td>
+                                    <span class="status-badge">
+                                        <?php echo htmlspecialchars($row["delivery_status"]); ?>
+                                    </span>
+                                </td>
 
-                                <input
-                                    type="hidden"
-                                    name="csrf_token"
-                                    value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>"
-                                >
+                                <td>
 
-                                <input
-                                    type="hidden"
-                                    name="delivery_id"
-                                    value="<?php echo (int) $row["delivery_id"]; ?>"
-                                >
+                                    <?php if ($row["delivery_status"] === "Pending"): ?>
 
-                                <input
-                                    type="hidden"
-                                    name="new_status"
-                                    value="Delivered"
-                                >
+                                        <form method="POST">
+                                            <input type="hidden" name="csrf_token"
+                                                value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">
 
-                                <button
-                                    type="submit"
-                                    name="update_status"
-                                >
-                                    Mark as Delivered
-                                </button>
+                                            <input type="hidden" name="delivery_id"
+                                                value="<?php echo (int) $row["delivery_id"]; ?>">
 
-                            </form>
-                            <?php elseif ($row["delivery_status"] === "Delivered"): ?>
+                                            <input type="hidden" name="new_status"
+                                                value="Out for Delivery">
 
-                            <strong>Completed</strong>
+                                            <button type="submit" name="update_status"
+                                                class="btn-primary">
+                                                Start Delivery
+                                            </button>
+                                        </form>
 
-                        <?php endif; ?>
+                                    <?php elseif ($row["delivery_status"] === "Out for Delivery"): ?>
 
-                    </td>
+                                        <form method="POST">
+                                            <input type="hidden" name="csrf_token"
+                                                value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">
 
-                </tr>
+                                            <input type="hidden" name="delivery_id"
+                                                value="<?php echo (int) $row["delivery_id"]; ?>">
 
-            <?php endwhile; ?>
+                                            <input type="hidden" name="new_status"
+                                                value="Delivered">
 
-        </table>
+                                            <button type="submit" name="update_status"
+                                                class="btn-success">
+                                                Mark as Delivered
+                                            </button>
+                                        </form>
 
-    <?php else: ?>
+                                    <?php elseif ($row["delivery_status"] === "Delivered"): ?>
 
-        <p>No deliveries assigned to you yet.</p>
+                                        <span class="completed-label">Completed</span>
 
-    <?php endif; ?>
+                                        <?php if (!empty($row["delivered_at"])): ?>
+                                            <p class="small-text">
+                                                <?php echo htmlspecialchars($row["delivered_at"]); ?>
+                                            </p>
+                                        <?php endif; ?>
 
-    <?php $stmt->close(); ?>
+                                    <?php endif; ?>
 
-    <br>
+                                </td>
+                            </tr>
 
-    <a href="logout.php">Logout</a>
+                        <?php endwhile; ?>
+
+                    <?php else: ?>
+
+                        <tr>
+                            <td colspan="8" class="empty-message">
+                                No deliveries have been assigned to you yet.
+                            </td>
+                        </tr>
+
+                    <?php endif; ?>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </section>
+
+    </main>
+
+</div>
 
 </body>
-
 </html>
+
+<?php
+$stmt->close();
+?>

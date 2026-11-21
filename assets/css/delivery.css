@@ -1,0 +1,412 @@
+
+/* =====================================
+   ERANDA WATER - DELIVERY DASHBOARD
+   ADMIN THEME - NAVY BLUE & WHITE
+===================================== */
+
+/* COLOUR VARIABLES */
+
+:root {
+    --primary: #102B4E;
+    --secondary: #244D79;
+    --hover: #1B416B;
+    --light-blue: #EEF5FF;
+    --background: #F3F7FC;
+    --white: #FFFFFF;
+    --text: #26384D;
+    --muted: #718096;
+    --success: #16834A;
+    --danger: #D94B4B;
+    --border: #E2EAF3;
+}
+
+/* GENERAL */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #EEF5FF;
+    color: #26384D;
+}
+
+a {
+    text-decoration: none;
+}
+
+/* MAIN LAYOUT */
+
+.app-layout {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+}
+
+/* SIDEBAR */
+
+.sidebar {
+    width: 260px;
+    min-width: 260px;
+    min-height: 100vh;
+    background: var(--primary);
+    padding: 25px 18px;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-brand {
+    text-align: center;
+    padding-bottom: 25px;
+    border-bottom: 1px solid rgba(255,255,255,0.15);
+}
+
+.sidebar-brand img {
+    width: 200px;
+    height: 250px;
+    object-fit: contain;
+    margin-bottom: 12px;
+    border-radius: 12px;
+    background: var(--primary);
+    padding: 3px;
+}
+
+.sidebar-brand h2 {
+    color: var(--white);
+    font-size: 21px;
+    margin-bottom: 6px;
+}
+
+.sidebar-brand p {
+    color: #C9DDF5;
+    font-size: 13px;
+}
+
+/* SIDEBAR NAVIGATION */
+
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 30px;
+}
+
+.sidebar-nav a {
+    display: block;
+    width: 100%;
+    padding: 14px 15px;
+    border-radius: 8px;
+    color: var(--white);
+    font-size: 14px;
+    transition: 0.2s ease;
+}
+
+.sidebar-nav a:hover {
+    background: var(--secondary);
+    color: var(--white);
+}
+
+.sidebar-nav a.active {
+    background: var(--light-blue);
+    color: var(--primary);
+    font-weight: bold;
+}
+
+/* LOGOUT */
+
+.sidebar-footer {
+    margin-top: auto;
+    padding-top: 25px;
+}
+
+.sidebar-footer a {
+    display: block;
+    background:#FFB000;
+    color: #102B4E;
+    padding: 13px;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.sidebar-footer a:hover {
+    background:#FFB000;
+}
+
+/* MAIN CONTENT */
+
+.main-content {
+    flex: 1;
+    min-width: 0;
+    padding: 30px;
+}
+
+/* TOPBAR */
+
+.topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    background: var(--white);
+    padding: 20px 25px;
+    border-radius: 12px;
+    margin-bottom: 25px;
+    box-shadow: 0 3px 12px rgba(16,43,78,0.06);
+}
+
+.topbar h2 {
+    color: var(--primary);
+    font-size: 23px;
+    margin-bottom: 6px;
+}
+
+.topbar p {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.admin-profile {
+    background: var(--light-blue);
+    color: var(--primary);
+    padding: 11px 17px;
+    border-radius: 25px;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+/* WELCOME CARD */
+
+.welcome-card {
+    background: linear-gradient(120deg, #102B4E, #244D79);
+    padding: 30px;
+    border-radius: 13px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 14px rgba(16,43,78,0.10);
+}
+
+.welcome-card h2 {
+    color: var(--white);
+    font-size: 25px;
+    margin-bottom: 10px;
+}
+
+.welcome-card p {
+    color: #DCEAFF;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+/* DASHBOARD SECTION */
+
+.dashboard-section {
+    margin-top: 25px;
+    width: 100%;
+}
+
+.section-heading {
+    margin-bottom: 20px;
+}
+
+.section-heading h2 {
+    color: var(--primary);
+    font-size: 21px;
+    margin-bottom: 7px;
+}
+
+.section-heading p {
+    color: var(--muted);
+    font-size: 14px;
+}
+
+/* TABLE CONTAINER */
+
+.table-container {
+    width: 100%;
+    overflow-x: auto;
+    background: var(--white);
+    padding: 18px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(16,43,78,0.06);
+}
+
+/* TABLE */
+
+.data-table {
+    width: 100%;
+    min-width: 950px;
+    border-collapse: collapse;
+}
+
+.data-table th {
+    background: var(--primary);
+    color: var(--white);
+    padding: 15px 12px;
+    text-align: left;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.data-table td {
+    padding: 15px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-size: 13px;
+    vertical-align: middle;
+    line-height: 1.5;
+}
+
+.data-table tbody tr:hover {
+    background: var(--light-blue);
+}
+
+/* STATUS BADGE */
+
+.status-badge {
+    display: inline-block;
+    background: var(--light-blue);
+    color: var(--primary);
+    padding: 7px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+/* ACTION BUTTONS */
+
+.data-table form {
+    margin: 0;
+}
+
+.btn-primary,
+.btn-success {
+    border: none;
+    padding: 10px 14px;
+    border-radius: 7px;
+    color: var(--white);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: bold;
+    white-space: nowrap;
+    transition: 0.2s;
+}
+
+.btn-primary {
+    background: var(--primary);
+}
+
+.btn-primary:hover {
+    background: var(--secondary);
+}
+
+.btn-success {
+    background: var(--success);
+}
+
+.btn-success:hover {
+    background: #106638;
+}
+
+/* COMPLETED LABEL */
+
+.completed-label {
+    display: inline-block;
+    background: #E5F7EC;
+    color: var(--success);
+    padding: 7px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.small-text {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--muted);
+}
+
+/* EMPTY MESSAGE */
+
+.empty-message {
+    text-align: center;
+    padding: 30px !important;
+    color: var(--muted) !important;
+}
+
+/* ALERT MESSAGES */
+
+.alert {
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.alert-success {
+    background: #E7F7ED;
+    color: #176B39;
+    border: 1px solid #B8E5C7;
+}
+
+.alert-error {
+    background: #FFF0F0;
+    color: #A52A2A;
+    border: 1px solid #F2C2C2;
+}
+
+/* RESPONSIVE DESIGN */
+
+@media screen and (max-width: 850px) {
+
+    .app-layout {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        min-width: 100%;
+        min-height: auto;
+    }
+
+    .main-content {
+        width: 100%;
+        padding: 20px;
+    }
+
+    .sidebar-footer {
+        margin-top: 15px;
+    }
+
+    .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
+
+@media screen and (max-width: 480px) {
+
+    .main-content {
+        padding: 12px;
+    }
+
+    .topbar {
+        padding: 17px;
+    }
+
+    .welcome-card {
+        padding: 22px;
+    }
+
+    .welcome-card h2 {
+        font-size: 21px;
+    }
+
+    .table-container {
+        padding: 10px;
+    }
+}

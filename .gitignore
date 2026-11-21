@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+*.bak.tmp
+.DS_Store
+Thumbs.db
+.idea/
